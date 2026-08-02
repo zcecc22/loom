@@ -1,0 +1,12 @@
+services:
+  {{.Name}}:
+    hostname: {{.Name}}
+    container_name: {{.Name}}
+    image: {{.Name}}:latest
+    env_file: .env
+    # volumes:
+    #   - /srv/{{.Name}}/data:/app/data:rw
+    network_mode: bridge
+    ports:
+      - '{{.Port}}:{{.Port}}'
+    restart: unless-stopped

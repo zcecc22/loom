@@ -1,0 +1,32 @@
+package main
+
+import (
+	"log/slog"
+	"net/http"
+	"os"
+
+	gwt "{{.GwtModule}}"
+)
+
+func main() {
+	cfg, err := gwt.LoadConfig()
+	if err != nil {
+		slog.Error("gwt: invalid config", "err", err)
+		os.Exit(1)
+	}
+
+	app := gwt.New(gwt.WithConfig(cfg))
+
+	app.Get("/", func(w http.ResponseWriter, r *http.Request) {
+		app.RenderJSON(w, r, map[string]string{"hello": "{{.Name}}"}, http.StatusOK)
+	})
+
+	app.Get("/page", func(w http.ResponseWriter, r *http.Request) {
+		app.RenderTemplate(w, r, "templates/index.tmpl", map[string]string{"Name": "{{.Name}}"}, http.StatusOK)
+	})
+
+	if err := app.Run(); err != nil {
+		app.Logger().Error("server exited with error", "err", err)
+		os.Exit(1)
+	}
+}

@@ -1,0 +1,5 @@
+/{{.Name}}
+*.exe
+*.test
+*.out
+.env
