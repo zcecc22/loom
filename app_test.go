@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-func TestNewWithZeroOptions(t *testing.T) {
+func TestNewWithNoArgument(t *testing.T) {
 	a := New()
 	if a == nil {
 		t.Fatal("New() returned nil")
@@ -29,50 +29,26 @@ func TestNewWithZeroOptions(t *testing.T) {
 	}
 }
 
-func TestWithConfigThenGranularOverrideWinsOnlyThatField(t *testing.T) {
-	loaded := Config{
-		Addr:              ":8000",
-		Env:               "dev",
-		ReadTimeout:       5 * time.Second,
-		ReadHeaderTimeout: 2 * time.Second,
-		WriteTimeout:      10 * time.Second,
-		IdleTimeout:       120 * time.Second,
-		ShutdownTimeout:   10 * time.Second,
-	}
+func TestAppConfigPartialConfigFillsMissingFieldsWithDefaults(t *testing.T) {
+	a := New(AppConfig{Config: Config{Addr: ":9000"}})
 
-	a := New(WithConfig(loaded), WithWriteTimeout(30*time.Second))
-
-	if a.cfg.WriteTimeout != 30*time.Second {
-		t.Fatalf("WriteTimeout = %v, want 30s", a.cfg.WriteTimeout)
-	}
-	if a.cfg.ReadTimeout != loaded.ReadTimeout {
-		t.Fatalf("ReadTimeout = %v, want unchanged %v", a.cfg.ReadTimeout, loaded.ReadTimeout)
-	}
-	if a.cfg.ReadHeaderTimeout != loaded.ReadHeaderTimeout {
-		t.Fatalf("ReadHeaderTimeout = %v, want unchanged %v", a.cfg.ReadHeaderTimeout, loaded.ReadHeaderTimeout)
-	}
-	if a.cfg.IdleTimeout != loaded.IdleTimeout {
-		t.Fatalf("IdleTimeout = %v, want unchanged %v", a.cfg.IdleTimeout, loaded.IdleTimeout)
-	}
-	if a.cfg.ShutdownTimeout != loaded.ShutdownTimeout {
-		t.Fatalf("ShutdownTimeout = %v, want unchanged %v", a.cfg.ShutdownTimeout, loaded.ShutdownTimeout)
-	}
-	if a.cfg.Addr != loaded.Addr {
-		t.Fatalf("Addr = %v, want unchanged %v", a.cfg.Addr, loaded.Addr)
+	want := defaultConfig()
+	want.Addr = ":9000"
+	if a.cfg != want {
+		t.Fatalf("cfg = %+v, want %+v", a.cfg, want)
 	}
 }
 
-func TestGranularTimeoutOptionsEachOverrideOnlyOwnField(t *testing.T) {
-	base := defaultConfig()
-	a := New(
-		WithConfig(base),
-		WithReadTimeout(1*time.Second),
-		WithReadHeaderTimeout(2*time.Second),
-		WithWriteTimeout(3*time.Second),
-		WithIdleTimeout(4*time.Second),
-		WithShutdownTimeout(5*time.Second),
-	)
+func TestAppConfigEachTimeoutFieldIndependentlyOverridable(t *testing.T) {
+	a := New(AppConfig{Config: Config{
+		ReadTimeout:       1 * time.Second,
+		ReadHeaderTimeout: 2 * time.Second,
+		WriteTimeout:      3 * time.Second,
+		IdleTimeout:       4 * time.Second,
+		ShutdownTimeout:   5 * time.Second,
+	}})
 
+	base := defaultConfig()
 	want := Config{
 		Addr:              base.Addr,
 		Env:               base.Env,
@@ -87,6 +63,24 @@ func TestGranularTimeoutOptionsEachOverrideOnlyOwnField(t *testing.T) {
 	}
 }
 
+func TestAppConfigFullyResolvedConfigPassesThroughUnchanged(t *testing.T) {
+	loaded := Config{
+		Addr:              ":8080",
+		Env:               "prod",
+		ReadTimeout:       11 * time.Second,
+		ReadHeaderTimeout: 12 * time.Second,
+		WriteTimeout:      13 * time.Second,
+		IdleTimeout:       14 * time.Second,
+		ShutdownTimeout:   15 * time.Second,
+	}
+
+	a := New(AppConfig{Config: loaded})
+
+	if a.cfg != loaded {
+		t.Fatalf("cfg = %+v, want %+v (every field was already set, so nothing should change)", a.cfg, loaded)
+	}
+}
+
 func TestUseWrapsWholeHandlerOnce(t *testing.T) {
 	var calls int
 	counting := func(next http.Handler) http.Handler {
@@ -96,7 +90,7 @@ func TestUseWrapsWholeHandlerOnce(t *testing.T) {
 		})
 	}
 
-	a := New(WithLogger(discardLogger()))
+	a := New(AppConfig{Logger: discardLogger()})
 	a.Use(counting)
 	a.Get("/a", func(w http.ResponseWriter, r *http.Request) {})
 	a.Get("/b", func(w http.ResponseWriter, r *http.Request) {})
@@ -115,7 +109,7 @@ func TestUseStacksAfterDefaultsNotBefore(t *testing.T) {
 	// (before) anything registered via Use — exactly the "stacked after
 	// the defaults" guarantee documented on Use.
 	var buf bytes.Buffer
-	a := New(WithLogger(jsonLogger(&buf)))
+	a := New(AppConfig{Logger: jsonLogger(&buf)})
 	a.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			panic("boom from Use-added middleware")
@@ -138,7 +132,7 @@ func TestUseStacksAfterDefaultsNotBefore(t *testing.T) {
 
 func TestHandlerCoversMuxNotFound(t *testing.T) {
 	var sawRequest bool
-	a := New(WithLogger(discardLogger()))
+	a := New(AppConfig{Logger: discardLogger()})
 	a.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			sawRequest = true
@@ -159,7 +153,7 @@ func TestHandlerCoversMuxNotFound(t *testing.T) {
 
 func TestNewAutoWiresLoggingAndRecoverWithNoSetup(t *testing.T) {
 	var buf bytes.Buffer
-	a := New(WithLogger(jsonLogger(&buf)))
+	a := New(AppConfig{Logger: jsonLogger(&buf)})
 	a.Get("/panics", func(w http.ResponseWriter, r *http.Request) {
 		panic("boom")
 	})
@@ -190,9 +184,9 @@ func TestNewAutoWiresLoggingAndRecoverWithNoSetup(t *testing.T) {
 
 func TestLoggerReturnsResolvedLogger(t *testing.T) {
 	custom := discardLogger()
-	a := New(WithLogger(custom))
+	a := New(AppConfig{Logger: custom})
 	if a.Logger() != custom {
-		t.Fatal("Logger() did not return the logger passed via WithLogger")
+		t.Fatal("Logger() did not return the logger passed via AppConfig.Logger")
 	}
 
 	a2 := New()

@@ -15,11 +15,14 @@ type Middleware func(http.Handler) http.Handler
 // order: Chain(A, B, C)(h) is equivalent to A(B(C(h))) — A's pre-handler
 // logic runs first (outermost) and its post-handler logic runs last.
 func Chain(mw ...Middleware) Middleware {
-	return func(h http.Handler) http.Handler {
+	return func(final http.Handler) http.Handler {
+		wrapped := final
+		// Apply last-to-first so the first middleware ends up as the
+		// outermost wrapper, e.g. for [A, B]: wrapped = A(B(final)).
 		for i := len(mw) - 1; i >= 0; i-- {
-			h = mw[i](h)
+			wrapped = mw[i](wrapped)
 		}
-		return h
+		return wrapped
 	}
 }
 

@@ -63,7 +63,7 @@ func TestChainEmpty(t *testing.T) {
 
 func TestRecoverCatchesPanicAndLogs500(t *testing.T) {
 	var buf bytes.Buffer
-	a := New(WithLogger(jsonLogger(&buf)))
+	a := New(AppConfig{Logger: jsonLogger(&buf)})
 
 	h := a.Recover()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		panic("boom")
@@ -84,7 +84,7 @@ func TestRecoverCatchesPanicAndLogs500(t *testing.T) {
 }
 
 func TestRecoverNoPanicPassesThrough(t *testing.T) {
-	a := New(WithLogger(discardLogger()))
+	a := New(AppConfig{Logger: discardLogger()})
 	h := a.Recover()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusTeapot)
 	}))
@@ -99,7 +99,7 @@ func TestRecoverNoPanicPassesThrough(t *testing.T) {
 
 func TestLoggingLogsExactlyOnceOnPanic(t *testing.T) {
 	var buf bytes.Buffer
-	a := New(WithLogger(jsonLogger(&buf)))
+	a := New(AppConfig{Logger: jsonLogger(&buf)})
 
 	h := Chain(a.Logging(), a.Recover())(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		panic("boom")
@@ -128,7 +128,7 @@ func TestLoggingLogsExactlyOnceOnPanic(t *testing.T) {
 
 func TestLoggingLogsExactlyOnceHappyPath(t *testing.T) {
 	var buf bytes.Buffer
-	a := New(WithLogger(jsonLogger(&buf)))
+	a := New(AppConfig{Logger: jsonLogger(&buf)})
 
 	h := a.Logging()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusCreated)

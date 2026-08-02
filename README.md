@@ -88,23 +88,49 @@ curl -XPOST -d '{"name":"widget"}' localhost:8000/items
 ### Constructing an App
 
 ```go
-func New(opts ...Option) *App
+func New(cfg ...AppConfig) *App
 ```
 
-`New` never fails and never validates — it applies `opts` over sane defaults and returns a ready `*App`. It **unconditionally** wires request logging and panic recovery as the App's middleware; there's no way to construct an `App` without them.
+`New` never fails and never validates — it applies `cfg` (if given) over sane defaults and returns a ready `*App`. It **unconditionally** wires request logging and panic recovery as the App's middleware; there's no way to construct an `App` without them. `cfg` is variadic only so `gwt.New()` with no argument keeps working for the zero-config case — passing more than one `AppConfig` is meaningless and only the first is used.
 
-**Options:**
+There's no functional-options layer here: `AppConfig` is a plain struct. Set the fields you care about, leave the rest zero:
 
-| Option | Effect |
+```go
+type AppConfig struct {
+	Config      Config // Addr, Env, and timeouts — see Configuration below
+	Logger      *slog.Logger
+	OnStart     []func(context.Context) error
+	OnShutdown  []func(context.Context) error
+	BaseContext func(net.Listener) context.Context
+}
+```
+
+| Field | Effect |
 |---|---|
-| `WithAddr(addr string)` | Listen address, e.g. `":8000"` |
-| `WithEnv(env string)` | Environment name; selects the default logger format |
-| `WithLogger(l *slog.Logger)` | Override the default logger |
-| `WithConfig(cfg Config)` | Apply a whole `Config` (typically from `LoadConfig()`) |
-| `WithReadTimeout` / `WithReadHeaderTimeout` / `WithWriteTimeout` / `WithIdleTimeout` / `WithShutdownTimeout` | Granular `time.Duration` overrides, applied after `WithConfig` if both are given |
-| `WithOnStart(fn func(context.Context) error)` | Startup hook, runs before the server starts serving |
-| `WithOnShutdown(fn func(context.Context) error)` | Shutdown hook, runs during graceful shutdown |
-| `WithBaseContext(fn func(net.Listener) context.Context)` | Passthrough to `http.Server.BaseContext` |
+| `Config` | Address, environment, and timeouts — any zero-value field falls back to the default for that field. Typically `LoadConfig()`'s result. |
+| `Logger` | Override the default logger |
+| `OnStart` | Startup hooks, run in order before the server starts serving; first error aborts startup |
+| `OnShutdown` | Shutdown hooks, run in **LIFO** order during graceful shutdown |
+| `BaseContext` | Passthrough to `http.Server.BaseContext` |
+
+Three independent examples (not meant to run together):
+
+```go
+app := gwt.New() // every default
+```
+
+```go
+app := gwt.New(gwt.AppConfig{Config: gwt.Config{Addr: ":9000"}})
+```
+
+```go
+app := gwt.New(gwt.AppConfig{
+	Logger: myLogger,
+	OnShutdown: []func(context.Context) error{
+		func(ctx context.Context) error { return db.Close() },
+	},
+})
+```
 
 `App` implements `http.Handler`, so it drops straight into `httptest.NewServer(app)` or nests inside another handler. `App.Handler()` returns the fully-built handler if you want to run your own `http.Server` instead of `Run`.
 
@@ -160,7 +186,7 @@ app.Run() error
 app.RunContext(ctx context.Context) error
 ```
 
-`Run` is a convenience that triggers shutdown on `SIGINT`/`SIGTERM`. `RunContext` triggers shutdown when `ctx` is done. Either way: on shutdown, in-flight requests get up to `Config.ShutdownTimeout` to finish before the server closes; `onShutdown` hooks then run in **LIFO** order (last registered, first run — symmetric with `defer`), each one always running regardless of earlier failures. `onStart` hooks run in **FIFO** order before the server starts serving; the first error aborts startup. A panicking hook becomes an error, not a process crash. Both functions return `nil` on a clean shutdown, never `http.ErrServerClosed`.
+`Run` is a convenience that triggers shutdown on `SIGINT`/`SIGTERM`. `RunContext` triggers shutdown when `ctx` is done. Either way: on shutdown, in-flight requests get up to `Config.ShutdownTimeout` to finish before the server closes; `AppConfig.OnShutdown` hooks then run in **LIFO** order (last registered, first run — symmetric with `defer`), each one always running regardless of earlier failures. `AppConfig.OnStart` hooks run in **FIFO** order before the server starts serving; the first error aborts startup. A panicking hook becomes an error, not a process crash. Both functions return `nil` on a clean shutdown, never `http.ErrServerClosed`.
 
 ### Configuration
 
@@ -191,7 +217,7 @@ cfg, err := gwt.LoadConfig()
 if err != nil {
 	log.Fatal(err)
 }
-app := gwt.New(gwt.WithConfig(cfg))
+app := gwt.New(gwt.AppConfig{Config: cfg})
 ```
 
 ### Logging
@@ -201,11 +227,11 @@ func NewLogger(env string) *slog.Logger
 app.Logger() *slog.Logger
 ```
 
-`NewLogger` returns a text-handler logger for `env == "dev"`, JSON otherwise — this is what `New` uses internally if you don't supply `WithLogger`. `app.Logger()` returns the App's resolved logger, useful for logging `Run`'s returned error when you don't hold a separate logger variable (see the Quick start example above).
+`NewLogger` returns a text-handler logger for `env == "dev"`, JSON otherwise — this is what `New` uses internally if you don't supply `AppConfig.Logger`. `app.Logger()` returns the App's resolved logger, useful for logging `Run`'s returned error when you don't hold a separate logger variable (see the Quick start example above).
 
 ## Idiomatic usage
 
-- **Start with zero setup.** `gwt.New()` is a complete, safe starting point. Reach for options only when you actually need to override something.
+- **Start with zero setup.** `gwt.New()` is a complete, safe starting point. Reach for `AppConfig` fields only when you actually need to override something.
 - **The logger is the one implicit dependency.** It's embedded in `App` so render calls and the built-in middleware don't need it threaded through every call. Everything else — a DB handle, a config value, anything your handlers need — should be passed explicitly (typically via closures, see below), not bolted onto `App`.
 - **Wire dependencies with closures, not a DI container.** There's no framework-level way to inject a database handle or similar into a handler. Build handlers as closures over what they need:
 

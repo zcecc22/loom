@@ -23,7 +23,7 @@ func (a *App) Run() error {
 // ctx is used for exactly one thing: knowing when to begin shutdown. When
 // ctx is done, RunContext calls http.Server.Shutdown with a fresh context
 // derived from Config.ShutdownTimeout — independent of ctx (which may
-// already be canceled) and independent of any WithBaseContext function.
+// already be canceled) and independent of any AppConfig.BaseContext func.
 //
 // ctx is never wired as http.Server.BaseContext: doing so would cancel
 // every in-flight request's context the instant ctx is canceled, silently
@@ -96,6 +96,8 @@ func runOnStart(ctx context.Context, hooks []func(context.Context) error) error 
 // failures; all errors (including panics converted to errors) are joined.
 func runOnShutdown(ctx context.Context, hooks []func(context.Context) error) error {
 	var errs []error
+	// Iterate back-to-front so the last-registered hook runs first — LIFO,
+	// symmetric with defer.
 	for i := len(hooks) - 1; i >= 0; i-- {
 		if err := callHook(ctx, hooks[i]); err != nil {
 			errs = append(errs, err)
@@ -106,11 +108,15 @@ func runOnShutdown(ctx context.Context, hooks []func(context.Context) error) err
 
 // callHook runs a single hook, converting a panic into an error instead of
 // crashing the process.
-func callHook(ctx context.Context, h func(context.Context) error) (err error) {
-	defer func() {
-		if rec := recover(); rec != nil {
-			err = fmt.Errorf("gwt: hook panic: %v", rec)
-		}
+func callHook(ctx context.Context, h func(context.Context) error) error {
+	var hookErr error
+	func() {
+		defer func() {
+			if rec := recover(); rec != nil {
+				hookErr = fmt.Errorf("gwt: hook panic: %v", rec)
+			}
+		}()
+		hookErr = h(ctx)
 	}()
-	return h(ctx)
+	return hookErr
 }

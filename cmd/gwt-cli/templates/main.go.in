@@ -15,7 +15,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	app := gwt.New(gwt.WithConfig(cfg))
+	app := gwt.New(gwt.AppConfig{Config: cfg})
 
 	app.Get("/", func(w http.ResponseWriter, r *http.Request) {
 		app.RenderJSON(w, r, map[string]string{"hello": "{{.Name}}"}, http.StatusOK)

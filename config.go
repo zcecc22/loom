@@ -37,8 +37,7 @@ const (
 	defaultShutdownTimeout   = 10 * time.Second
 )
 
-// defaultConfig returns the Config used when no options and no environment
-// variables override it.
+// defaultConfig returns the Config used when nothing overrides it.
 func defaultConfig() Config {
 	return Config{
 		Addr:              defaultAddr,
@@ -49,6 +48,43 @@ func defaultConfig() Config {
 		IdleTimeout:       defaultIdleTimeout,
 		ShutdownTimeout:   defaultShutdownTimeout,
 	}
+}
+
+// resolveConfig returns c with every zero-value field replaced by the
+// corresponding field from defaultConfig(). This is what lets a caller
+// write AppConfig{Config: Config{Addr: ":9000"}} and have every other
+// field (the timeouts especially) still come out non-zero — a zero
+// timeout means "no timeout" in http.Server, which is exactly what New
+// must never produce by accident.
+//
+// One consequence: there's no way to explicitly request a zero timeout
+// through AppConfig — a zero value always reads as "unset, use the
+// default." That trade-off is deliberate; it's not something to work
+// around.
+func resolveConfig(c Config) Config {
+	d := defaultConfig()
+	if c.Addr != "" {
+		d.Addr = c.Addr
+	}
+	if c.Env != "" {
+		d.Env = c.Env
+	}
+	if c.ReadTimeout != 0 {
+		d.ReadTimeout = c.ReadTimeout
+	}
+	if c.ReadHeaderTimeout != 0 {
+		d.ReadHeaderTimeout = c.ReadHeaderTimeout
+	}
+	if c.WriteTimeout != 0 {
+		d.WriteTimeout = c.WriteTimeout
+	}
+	if c.IdleTimeout != 0 {
+		d.IdleTimeout = c.IdleTimeout
+	}
+	if c.ShutdownTimeout != 0 {
+		d.ShutdownTimeout = c.ShutdownTimeout
+	}
+	return d
 }
 
 // LoadConfig reads configuration from the environment: ADDR (default

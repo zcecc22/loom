@@ -64,7 +64,7 @@ func TestEndToEndDefaultAndUseMiddlewareOrder(t *testing.T) {
 		}
 	}
 
-	a := New(WithLogger(discardLogger()))
+	a := New(AppConfig{Logger: discardLogger()})
 	a.Use(tag("used"))
 	a.Get("/items/{id}", func(w http.ResponseWriter, r *http.Request) {
 		order = append(order, "handler")

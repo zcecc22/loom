@@ -13,7 +13,7 @@ import (
 )
 
 func TestRenderJSONHappyPath(t *testing.T) {
-	a := New(WithLogger(discardLogger()))
+	a := New(AppConfig{Logger: discardLogger()})
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/items/1", nil)
 
@@ -36,7 +36,7 @@ func TestRenderJSONHappyPath(t *testing.T) {
 
 func TestRenderJSONMarshalErrorFallsBackTo500(t *testing.T) {
 	var buf bytes.Buffer
-	a := New(WithLogger(jsonLogger(&buf)))
+	a := New(AppConfig{Logger: jsonLogger(&buf)})
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/bad", nil)
 
@@ -58,7 +58,7 @@ func TestRenderTemplateHTMLEscapesXSS(t *testing.T) {
 		t.Fatalf("write template: %v", err)
 	}
 
-	a := New(WithLogger(discardLogger()))
+	a := New(AppConfig{Logger: discardLogger()})
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/page", nil)
 
@@ -87,7 +87,7 @@ func TestRenderTemplateExecuteErrorWritesNothingThenServerError(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	a := New(WithLogger(jsonLogger(&buf)))
+	a := New(AppConfig{Logger: jsonLogger(&buf)})
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/bad", nil)
 
@@ -102,7 +102,7 @@ func TestRenderTemplateExecuteErrorWritesNothingThenServerError(t *testing.T) {
 }
 
 func TestRenderTemplateParseErrorIsServerError(t *testing.T) {
-	a := New(WithLogger(discardLogger()))
+	a := New(AppConfig{Logger: discardLogger()})
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/missing", nil)
 
@@ -115,7 +115,7 @@ func TestRenderTemplateParseErrorIsServerError(t *testing.T) {
 
 func TestRenderServerErrorLogsAndWrites500(t *testing.T) {
 	var buf bytes.Buffer
-	a := New(WithLogger(jsonLogger(&buf)))
+	a := New(AppConfig{Logger: jsonLogger(&buf)})
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/err", nil)
 

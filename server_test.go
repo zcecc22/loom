@@ -60,23 +60,24 @@ func TestRunContextGracefulShutdownWaitsForInFlightRequest(t *testing.T) {
 	var mu sync.Mutex
 	var shutdownOrder []string
 
-	a := New(
-		WithAddr(addr),
-		WithLogger(discardLogger()),
-		WithShutdownTimeout(2*time.Second),
-		WithOnShutdown(func(ctx context.Context) error {
-			mu.Lock()
-			shutdownOrder = append(shutdownOrder, "first")
-			mu.Unlock()
-			return nil
-		}),
-		WithOnShutdown(func(ctx context.Context) error {
-			mu.Lock()
-			shutdownOrder = append(shutdownOrder, "second")
-			mu.Unlock()
-			return nil
-		}),
-	)
+	a := New(AppConfig{
+		Config: Config{Addr: addr, ShutdownTimeout: 2 * time.Second},
+		Logger: discardLogger(),
+		OnShutdown: []func(context.Context) error{
+			func(ctx context.Context) error {
+				mu.Lock()
+				shutdownOrder = append(shutdownOrder, "first")
+				mu.Unlock()
+				return nil
+			},
+			func(ctx context.Context) error {
+				mu.Lock()
+				shutdownOrder = append(shutdownOrder, "second")
+				mu.Unlock()
+				return nil
+			},
+		},
+	})
 	a.Get("/slow", func(w http.ResponseWriter, r *http.Request) {
 		close(started)
 		<-proceed
@@ -161,11 +162,10 @@ func TestRunContextGracefulShutdownWaitsForInFlightRequest(t *testing.T) {
 
 func TestServerReadHeaderTimeoutDropsStalledConnection(t *testing.T) {
 	addr := testAddr(t)
-	a := New(
-		WithAddr(addr),
-		WithLogger(discardLogger()),
-		WithReadHeaderTimeout(150*time.Millisecond),
-	)
+	a := New(AppConfig{
+		Config: Config{Addr: addr, ReadHeaderTimeout: 150 * time.Millisecond},
+		Logger: discardLogger(),
+	})
 	a.Get("/", func(w http.ResponseWriter, r *http.Request) {})
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -204,13 +204,15 @@ func TestServerReadHeaderTimeoutDropsStalledConnection(t *testing.T) {
 
 func TestPanicInOnStartHookBecomesError(t *testing.T) {
 	addr := testAddr(t)
-	a := New(
-		WithAddr(addr),
-		WithLogger(discardLogger()),
-		WithOnStart(func(ctx context.Context) error {
-			panic("start boom")
-		}),
-	)
+	a := New(AppConfig{
+		Config: Config{Addr: addr},
+		Logger: discardLogger(),
+		OnStart: []func(context.Context) error{
+			func(ctx context.Context) error {
+				panic("start boom")
+			},
+		},
+	})
 
 	err := a.RunContext(context.Background())
 	if err == nil {
@@ -223,14 +225,15 @@ func TestPanicInOnStartHookBecomesError(t *testing.T) {
 
 func TestPanicInOnShutdownHookBecomesJoinedError(t *testing.T) {
 	addr := testAddr(t)
-	a := New(
-		WithAddr(addr),
-		WithLogger(discardLogger()),
-		WithShutdownTimeout(time.Second),
-		WithOnShutdown(func(ctx context.Context) error {
-			panic("shutdown boom")
-		}),
-	)
+	a := New(AppConfig{
+		Config: Config{Addr: addr, ShutdownTimeout: time.Second},
+		Logger: discardLogger(),
+		OnShutdown: []func(context.Context) error{
+			func(ctx context.Context) error {
+				panic("shutdown boom")
+			},
+		},
+	})
 	a.Get("/", func(w http.ResponseWriter, r *http.Request) {})
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -259,7 +262,7 @@ func TestPanicInOnShutdownHookBecomesJoinedError(t *testing.T) {
 func TestRunContextRepeatedStartStop(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		addr := testAddr(t)
-		a := New(WithAddr(addr), WithLogger(discardLogger()), WithShutdownTimeout(time.Second))
+		a := New(AppConfig{Config: Config{Addr: addr, ShutdownTimeout: time.Second}, Logger: discardLogger()})
 		a.Get("/", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -290,7 +293,7 @@ func TestRunContextRepeatedStartStop(t *testing.T) {
 
 func TestRunContextReturnsNilNotErrServerClosed(t *testing.T) {
 	addr := testAddr(t)
-	a := New(WithAddr(addr), WithLogger(discardLogger()), WithShutdownTimeout(time.Second))
+	a := New(AppConfig{Config: Config{Addr: addr, ShutdownTimeout: time.Second}, Logger: discardLogger()})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	runErrCh := make(chan error, 1)
