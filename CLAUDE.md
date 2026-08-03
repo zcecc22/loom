@@ -21,7 +21,7 @@ v2's scope, relative to v1:
 3. **The logger is embedded in `App`, and that's a deliberate, narrow exception to "explicit dependencies."** Every handler used to need `logger` threaded through every render call, and every app needed the same logger passed twice more to build its middleware stack — pure repetition with zero payoff, since there is exactly one logger per `App`. `RenderJSON`/`RenderTemplate`/`RenderServerError`/`Logging`/`Recover` are now `App` methods that read `a.logger` implicitly instead of taking it as a parameter. **This does not generalize** — it does not mean dependencies should become implicit generally. There is no service locator, no other hidden state, and no plan to embed anything else this way. If a future case seems to call for it, treat it as a new decision, not a precedent already set.
 4. **Every `App` is logged and panic-safe with zero setup.** `New()` unconditionally wires `Logging()` and `Recover()` as the App's outermost middleware — there is no option to skip this. `gwt.New()` alone is a complete, safe starting point; `Use(mw ...Middleware)` adds anything further on top (stacked closer to the handler, so `Recover` still catches panics inside it). This is a deliberate behavior change, not just an ergonomics one — weigh it before ever making it optional.
 5. **Idiomatic Go.** `net/http` handlers, `log/slog`, `html/template`. No reinventing stdlib patterns.
-6. **The scaffold is the spec.** `gwt-cli new` must always produce a runnable, `go vet`-clean project with a working Docker deployment artifact — it is the canonical usage example, same role it played in v1. `examples/basic/main.go` is a secondary, simpler reference; it is not shaped for scaffold-template reuse (the scaffolder has its own embedded templates under `cmd/gwt-cli/templates/`).
+6. **The scaffold is the spec.** `gwt-cli new` must always produce a runnable, `go vet`-clean project with a working Docker deployment artifact — it is the canonical usage example, same role it played in v1. `examples/basic/main.go` is a secondary reference — a comprehensive single-file tour of every construct in the API, kept deliberately more exhaustive than the scaffold's own generated app — but it is still not shaped for scaffold-template reuse (the scaffolder has its own embedded templates under `cmd/gwt-cli/templates/`).
 7. **No speculative abstractions.** New helpers land when a real use case needs them, not before. This is why `RequestID` middleware, route introspection (`App.Routes()`), and a `Logging`/`Recover` opt-out were cut to ISSUES.md's Deferred tier rather than built speculatively. It's also why `Group` (a prefix-scoped nested route builder) was built, then **removed** — routing is flat by design now: explicit verb methods plus one generic `Handle(method, pattern, h, mw...)`, nothing more.
 
 ## Repo layout
@@ -41,7 +41,7 @@ v2's scope, relative to v1:
 ├── auth.go                   App.Auth() + package-level Identity() — generic pluggable auth
 ├── *_test.go                 Co-located tests for each file above
 ├── examples/
-│   └── basic/main.go       Minimal runnable reference program (secondary to the scaffold)
+│   └── basic/              Single-file tour of every construct (main.go + templates/ + static/)
 ├── cmd/
 │   └── gwt-cli/            `gwt-cli new <name>` project scaffolder
 │       ├── main.go            Subcommand dispatcher + flags (-module, -port, -force)
