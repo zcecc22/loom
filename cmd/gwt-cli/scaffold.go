@@ -50,6 +50,7 @@ var manifest = []manifestEntry{
 	{"update_image.in", "update_image", true},
 	{"env.example.in", ".env.example", true},
 	{"templates/index.tmpl", "templates/index.tmpl", false},
+	{"static/style.css", "static/style.css", false},
 }
 
 // scaffold writes a new project at destDir using data. If force is false

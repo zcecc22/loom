@@ -22,6 +22,7 @@ func TestScaffoldGeneratesExpectedFiles(t *testing.T) {
 	want := []string{
 		"main.go", "go.mod", ".gitignore", ".dockerignore", "Dockerfile",
 		"docker-compose.yml", "update_image", ".env.example", "templates/index.tmpl",
+		"static/style.css",
 	}
 	for _, rel := range want {
 		if _, err := os.Stat(filepath.Join(dest, rel)); err != nil {

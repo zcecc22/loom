@@ -17,6 +17,13 @@ func main() {
 
 	app := gwt.New(gwt.AppConfig{Config: cfg})
 
+	// SecureHeaders sets X-Content-Type-Options/X-Frame-Options/
+	// Referrer-Policy. MaxBodySize and HSTS are also available
+	// (app.MaxBodySize, app.HSTS) but aren't wired in by default — HSTS
+	// in particular is only correct once this app is actually served over
+	// HTTPS, which isn't true of a fresh scaffold running locally.
+	app.Use(app.SecureHeaders())
+
 	app.Get("/", func(w http.ResponseWriter, r *http.Request) {
 		app.RenderJSON(w, r, map[string]string{"hello": "{{.Name}}"}, http.StatusOK)
 	})
@@ -24,6 +31,21 @@ func main() {
 	app.Get("/page", func(w http.ResponseWriter, r *http.Request) {
 		app.RenderTemplate(w, r, "templates/index.tmpl", map[string]string{"Name": "{{.Name}}"}, http.StatusOK)
 	})
+
+	app.ServeStatic("/static/", "static")
+
+	adminUser := os.Getenv("ADMIN_USER")
+	adminPassword := os.Getenv("ADMIN_PASSWORD")
+	app.Get("/admin", func(w http.ResponseWriter, r *http.Request) {
+		user, _ := gwt.Identity(r)
+		app.RenderJSON(w, r, map[string]string{"logged_in_as": user}, http.StatusOK)
+	}, app.Auth(func(r *http.Request) (string, bool) {
+		user, pass, ok := r.BasicAuth()
+		if !ok || user != adminUser || pass != adminPassword {
+			return "", false
+		}
+		return user, true
+	}))
 
 	if err := app.Run(); err != nil {
 		app.Logger().Error("server exited with error", "err", err)

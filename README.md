@@ -336,12 +336,20 @@ go run .
 
 (From inside a checkout of this repo, `go run ./cmd/gwt-cli new myapp` works too, without installing anything.)
 
-`gwt-cli new <name>` generates a runnable app (`main.go`, `go.mod`, a `RenderJSON` demo route, a `RenderTemplate` demo route with `templates/index.tmpl`) plus a full Docker deployment set:
+`gwt-cli new <name>` generates a runnable app (`main.go`, `go.mod`) demonstrating every feature above:
 
-- **`Dockerfile`** — multi-stage build (`golang:1.24.4` → `alpine:latest`, `CGO_ENABLED=0`)
+- `GET /` — `RenderJSON`
+- `GET /page` — `RenderTemplate` (`templates/index.tmpl`), linking the generated stylesheet
+- `GET /static/*` — `ServeStatic` serving `static/style.css`
+- `app.Use(app.SecureHeaders())` — applied globally
+- `GET /admin` — `Auth`-protected, reading demo credentials from `ADMIN_USER`/`ADMIN_PASSWORD`
+
+...plus a full Docker deployment set:
+
+- **`Dockerfile`** — multi-stage build (`golang:1.24.4` → `alpine:latest`, `CGO_ENABLED=0`), copying both `templates/` and `static/` into the runtime image
 - **`docker-compose.yml`** — single service, `env_file: .env`, `restart: unless-stopped`
 - **`update_image`** — local rebuild-and-restart deploy script
-- **`.env.example`** — one line per `Config` field
+- **`.env.example`** — one line per `Config` field, plus the two demo `ADMIN_*` credentials
 - **`.dockerignore`**
 
 Flags: `-module <path>` (Go module path, default the project name), `-port <num>` (default `8000`), `-force` (overwrite an existing non-empty directory). Flags go before the name:
