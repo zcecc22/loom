@@ -36,7 +36,7 @@ Scope, relative to v1:
 ├── router.go              GET/POST/PUT/PATCH/DELETE, Handle, HandleHTTP — flat routing
 ├── middleware.go          Middleware type, Chain(), App.Logging(), App.Recover(), statusWriter
 ├── server.go              Run()/RunContext(), graceful shutdown, startup/shutdown hooks
-├── config.go              Config struct, LoadConfig() (Config, error)
+├── config.go              ServerConfig struct, LoadServerConfig() (ServerConfig, error)
 ├── logging.go             NewLogger(env) *slog.Logger
 ├── render.go              App.LoadTemplates() + unexported serverError (http-level 500 path)
 ├── static.go              App.ServeStatic() — directory serving, listing disabled by default
@@ -96,8 +96,8 @@ All symbols live in package `gwt` at the module root, except the scaffolder CLI 
 
 **`app.go`**
 - `type App struct { ... }` — mux, global middleware, config, logger, template set, error handler, lifecycle hooks, and the cached built handler. Implements `http.Handler`.
-- `type AppConfig struct { Config Config; Logger *slog.Logger; Templates *template.Template; ErrorHandler func(*Ctx, error); OnStart, OnShutdown []func(context.Context) error; BaseContext func(net.Listener) context.Context }` — every field optional, zero value = default.
-- `New(cfg ...AppConfig) *App` — resolves `cfg[0]` if given, fills any zero-value `Config` field via `resolveConfig`, defaults the logger via `NewLogger(cfg.Env)`, then unconditionally sets global middleware to `[]Middleware{a.Logging(), a.Recover()}`. **`cfg` is variadic only to keep the zero-argument call working.**
+- `type AppConfig struct { Server ServerConfig; Logger *slog.Logger; Templates *template.Template; ErrorHandler func(*Ctx, error); OnStart, OnShutdown []func(context.Context) error; BaseContext func(net.Listener) context.Context }` — every field optional, zero value = default.
+- `New(cfg ...AppConfig) *App` — resolves `cfg[0]` if given, fills any zero-value `ServerConfig` field via `resolveServerConfig`, defaults the logger via `NewLogger(cfg.Env)`, then unconditionally sets global middleware to `[]Middleware{a.Logging(), a.Recover()}`. **`cfg` is variadic only to keep the zero-argument call working.**
 - `App.Use(mw ...Middleware)` — the **only** mechanism for global middleware beyond the always-on pair. Appends, stacked *after* the defaults (closer to the handler).
 - `App.Logger() *slog.Logger`, `App.Handler() http.Handler`.
 - **`Handler()` composes the chain once, under a `sync.Once`, and caches it.** `ServeHTTP` used to rebuild the whole chain per request. Consequence to know: a `Use` call after serving has begun is **silently ignored**. Call `Use` before serving, right after `New`.
@@ -119,14 +119,14 @@ All symbols live in package `gwt` at the module root, except the scaffolder CLI 
 - `statusWriter` wraps every response to record the status. It **forwards `Flush`, `Hijack`, and `ReadFrom`, and exposes `Unwrap() http.ResponseWriter`** for `http.ResponseController`. This matters because `Logging` is always on and unremovable: anything `statusWriter` fails to forward is unreachable in *every* gwt app, which silently broke SSE, streaming, and WebSocket upgrades before v3. `Hijack` over a non-hijackable writer returns `http.ErrNotSupported`, the same sentinel `http.ResponseController` uses.
 
 **`server.go`**
-- `App.Run(addr ...string) error` — derives its context from `signal.NotifyContext(os.Interrupt, syscall.SIGTERM)`. `addr` is optional and overrides `Config.Addr`, so `app.Run(":8080")` works.
+- `App.Run(addr ...string) error` — derives its context from `signal.NotifyContext(os.Interrupt, syscall.SIGTERM)`. `addr` is optional and overrides `ServerConfig.Addr`, so `app.Run(":8080")` works.
 - `App.RunContext(ctx context.Context, addr ...string) error` — `ctx` is used for exactly one thing: knowing *when* to begin shutdown. See Things to avoid for the `BaseContext` distinction.
 - `AppConfig.BaseContext` — passthrough to `http.Server.BaseContext`, a deliberately separate mechanism from shutdown signaling.
 
 **`config.go`**
-- `type Config struct { Addr, Env string; ReadTimeout, ReadHeaderTimeout, WriteTimeout, IdleTimeout, ShutdownTimeout time.Duration }`
-- `LoadConfig() (Config, error)` — reads `ADDR` (default `:8000`), `ENV` (`dev`), `READ_TIMEOUT` (5s), `READ_HEADER_TIMEOUT` (2s), `WRITE_TIMEOUT` (10s), `IDLE_TIMEOUT` (120s), `SHUTDOWN_TIMEOUT` (10s). Fails fast on a malformed `*_TIMEOUT` value, naming the offending variable.
-- `resolveConfig(c Config) Config` (unexported) — fills any zero-value field from `defaultConfig()`. Consequence: there's no way to force a zero timeout — a zero value always reads as "unset, use the default." Deliberate.
+- `type ServerConfig struct { Addr, Env string; ReadTimeout, ReadHeaderTimeout, WriteTimeout, IdleTimeout, ShutdownTimeout time.Duration }`
+- `LoadServerConfig() (ServerConfig, error)` — reads `ADDR` (default `:8000`), `ENV` (`dev`), `READ_TIMEOUT` (5s), `READ_HEADER_TIMEOUT` (2s), `WRITE_TIMEOUT` (10s), `IDLE_TIMEOUT` (120s), `SHUTDOWN_TIMEOUT` (10s). Fails fast on a malformed `*_TIMEOUT` value, naming the offending variable.
+- `resolveServerConfig(c ServerConfig) ServerConfig` (unexported) — fills any zero-value field from `defaultServerConfig()`. Consequence: there's no way to force a zero timeout — a zero value always reads as "unset, use the default." Deliberate.
 
 **`logging.go`**
 - `NewLogger(env string) *slog.Logger` — `env == "dev"` → `TextHandler`; anything else → `JSONHandler`. Both to `os.Stderr`.
@@ -150,11 +150,11 @@ All symbols live in package `gwt` at the module root, except the scaffolder CLI 
 - `Auth` is **route-level** middleware, passed as a trailing `mw` argument. Protecting a subset of routes is just a matter of only passing it to those routes; no grouping mechanism is needed or provided.
 
 **`cmd/gwt-cli`**
-- `gwt-cli new <name>` — flags `-module <path>`, `-port <num>`, `-force`. Emits a runnable gwt app (`main.go`, `go.mod`) demonstrating the v3 API: a `c.JSON` route (`/`), a `c.HTML` route (`/page`) backed by `LoadTemplates` over an **embedded** `templates/`, `ServeStatic` (`/static/`), a `gwt.Status` error route (`/items/{id}`), `Use(app.SecureHeaders())`, and an `Auth`-protected `/admin` reading demo credentials from `ADMIN_USER`/`ADMIN_PASSWORD` (app-specific env vars read via `os.Getenv` — not part of `gwt.Config`). Plus the Docker set: `Dockerfile` (copies `static/` only — **templates are embedded in the binary now**), `docker-compose.yml`, `update_image`, `.env.example`, `.dockerignore`. `.in` files run through `text/template`; other files are copied verbatim. `go mod tidy` is left as a manual step so the scaffold does not depend on network access.
+- `gwt-cli new <name>` — flags `-module <path>`, `-port <num>`, `-force`. Emits a runnable gwt app (`main.go`, `go.mod`) demonstrating the v3 API: a `c.JSON` route (`/`), a `c.HTML` route (`/page`) backed by `LoadTemplates` over an **embedded** `templates/`, `ServeStatic` (`/static/`), a `gwt.Status` error route (`/items/{id}`), `Use(app.SecureHeaders())`, and an `Auth`-protected `/admin` reading demo credentials from `ADMIN_USER`/`ADMIN_PASSWORD` (app-specific env vars read via `os.Getenv` — not part of `gwt.ServerConfig`). Plus the Docker set: `Dockerfile` (copies `static/` only — **templates are embedded in the binary now**), `docker-compose.yml`, `update_image`, `.env.example`, `.dockerignore`. `.in` files run through `text/template`; other files are copied verbatim. `go mod tidy` is left as a manual step so the scaffold does not depend on network access.
 
 ## Conventions
 
-- **`New` is non-fallible by design.** It never returns an error and never validates — mistakes surface at `Run()`, which already returns `error`. The things that *can* fail have their own error returns: `LoadConfig()` and `LoadTemplates()`. Don't add validation to `New` or change its signature without discussing it first.
+- **`New` is non-fallible by design.** It never returns an error and never validates — mistakes surface at `Run()`, which already returns `error`. The things that *can* fail have their own error returns: `LoadServerConfig()` and `LoadTemplates()`. Don't add validation to `New` or change its signature without discussing it first.
 - **Global middleware wraps the whole built handler once**, at `Handler()` build time — not per-route. So global middleware also covers the mux's own 404/405 responses; route middleware does not see those, since it only wraps the handler it's attached to. This is intentional, and it is the reason middleware stayed `net/http`-shaped (Principle 2).
 - **Middleware order is fixed: `Logging` → `Recover` → anything added via `Use` (in call order) → route-level `mw` → handler.** `Logging` is outermost so it logs the true final status even when `Recover` converts a panic to a 500; `Recover` is next so it catches panics from `Use`-added middleware too.
 - **`Logging` and `Recover` are the only *automatic* middleware.** `SecureHeaders`, `MaxBodySize`, `HSTS`, and `Auth` are all opt-in. Keep it that way: a header or an auth check can break a legitimate use case in a way logging/panic-recovery never do.

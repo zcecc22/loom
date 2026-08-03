@@ -6,8 +6,8 @@ import (
 	"time"
 )
 
-// Config holds runtime configuration for an App's HTTP server.
-type Config struct {
+// ServerConfig holds runtime configuration for an App's HTTP server.
+type ServerConfig struct {
 	// Addr is the address the server listens on, e.g. ":8000".
 	Addr string
 	// Env is the environment name (e.g. "dev", "prod"); it selects
@@ -37,9 +37,9 @@ const (
 	defaultShutdownTimeout   = 10 * time.Second
 )
 
-// defaultConfig returns the Config used when nothing overrides it.
-func defaultConfig() Config {
-	return Config{
+// defaultServerConfig returns the ServerConfig used when nothing overrides it.
+func defaultServerConfig() ServerConfig {
+	return ServerConfig{
 		Addr:              defaultAddr,
 		Env:               defaultEnv,
 		ReadTimeout:       defaultReadTimeout,
@@ -50,9 +50,9 @@ func defaultConfig() Config {
 	}
 }
 
-// resolveConfig returns c with every zero-value field replaced by the
-// corresponding field from defaultConfig(). This is what lets a caller
-// write AppConfig{Config: Config{Addr: ":9000"}} and have every other
+// resolveServerConfig returns c with every zero-value field replaced by the
+// corresponding field from defaultServerConfig(). This is what lets a caller
+// write AppConfig{Server: ServerConfig{Addr: ":9000"}} and have every other
 // field (the timeouts especially) still come out non-zero — a zero
 // timeout means "no timeout" in http.Server, which is exactly what New
 // must never produce by accident.
@@ -61,8 +61,8 @@ func defaultConfig() Config {
 // through AppConfig — a zero value always reads as "unset, use the
 // default." That trade-off is deliberate; it's not something to work
 // around.
-func resolveConfig(c Config) Config {
-	d := defaultConfig()
+func resolveServerConfig(c ServerConfig) ServerConfig {
+	d := defaultServerConfig()
 	if c.Addr != "" {
 		d.Addr = c.Addr
 	}
@@ -87,13 +87,13 @@ func resolveConfig(c Config) Config {
 	return d
 }
 
-// LoadConfig reads configuration from the environment: ADDR (default
+// LoadServerConfig reads configuration from the environment: ADDR (default
 // ":8000"), ENV (default "dev"), READ_TIMEOUT (default 5s),
 // READ_HEADER_TIMEOUT (default 2s), WRITE_TIMEOUT (default 10s),
 // IDLE_TIMEOUT (default 120s), and SHUTDOWN_TIMEOUT (default 10s). A
 // malformed *_TIMEOUT value fails fast, naming the offending variable.
-func LoadConfig() (Config, error) {
-	cfg := defaultConfig()
+func LoadServerConfig() (ServerConfig, error) {
+	cfg := defaultServerConfig()
 
 	if v := os.Getenv("ADDR"); v != "" {
 		cfg.Addr = v
@@ -104,19 +104,19 @@ func LoadConfig() (Config, error) {
 
 	var err error
 	if cfg.ReadTimeout, err = durationEnv("READ_TIMEOUT", cfg.ReadTimeout); err != nil {
-		return Config{}, err
+		return ServerConfig{}, err
 	}
 	if cfg.ReadHeaderTimeout, err = durationEnv("READ_HEADER_TIMEOUT", cfg.ReadHeaderTimeout); err != nil {
-		return Config{}, err
+		return ServerConfig{}, err
 	}
 	if cfg.WriteTimeout, err = durationEnv("WRITE_TIMEOUT", cfg.WriteTimeout); err != nil {
-		return Config{}, err
+		return ServerConfig{}, err
 	}
 	if cfg.IdleTimeout, err = durationEnv("IDLE_TIMEOUT", cfg.IdleTimeout); err != nil {
-		return Config{}, err
+		return ServerConfig{}, err
 	}
 	if cfg.ShutdownTimeout, err = durationEnv("SHUTDOWN_TIMEOUT", cfg.ShutdownTimeout); err != nil {
-		return Config{}, err
+		return ServerConfig{}, err
 	}
 
 	return cfg, nil

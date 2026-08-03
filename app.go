@@ -16,7 +16,7 @@ import (
 type App struct {
 	mux    *http.ServeMux
 	global []Middleware
-	cfg    Config
+	cfg    ServerConfig
 	logger *slog.Logger
 
 	templates    *template.Template
@@ -38,11 +38,12 @@ type App struct {
 // builder and no functional options here: set the fields you care about
 // on a plain struct literal.
 type AppConfig struct {
-	// Config holds the HTTP server's address, environment, and timeouts.
+	// Server holds the HTTP server's address, environment, and timeouts.
 	// A zero-value field within it falls back to the same default
-	// LoadConfig would use — set only the fields you want to override.
-	// This is typically LoadConfig()'s result, passed straight through.
-	Config Config
+	// LoadServerConfig would use — set only the fields you want to
+	// override. This is typically LoadServerConfig()'s result, passed
+	// straight through.
+	Server ServerConfig
 
 	// Logger overrides the default logger built from NewLogger(Config.Env).
 	Logger *slog.Logger
@@ -98,7 +99,7 @@ func New(cfg ...AppConfig) *App {
 
 	a := &App{
 		mux:           http.NewServeMux(),
-		cfg:           resolveConfig(c.Config),
+		cfg:           resolveServerConfig(c.Server),
 		logger:        c.Logger,
 		templates:     c.Templates,
 		errorHandler:  c.ErrorHandler,

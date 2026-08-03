@@ -30,9 +30,9 @@ func TestNewWithNoArgument(t *testing.T) {
 }
 
 func TestAppConfigPartialConfigFillsMissingFieldsWithDefaults(t *testing.T) {
-	a := New(AppConfig{Config: Config{Addr: ":9000"}})
+	a := New(AppConfig{Server: ServerConfig{Addr: ":9000"}})
 
-	want := defaultConfig()
+	want := defaultServerConfig()
 	want.Addr = ":9000"
 	if a.cfg != want {
 		t.Fatalf("cfg = %+v, want %+v", a.cfg, want)
@@ -40,7 +40,7 @@ func TestAppConfigPartialConfigFillsMissingFieldsWithDefaults(t *testing.T) {
 }
 
 func TestAppConfigEachTimeoutFieldIndependentlyOverridable(t *testing.T) {
-	a := New(AppConfig{Config: Config{
+	a := New(AppConfig{Server: ServerConfig{
 		ReadTimeout:       1 * time.Second,
 		ReadHeaderTimeout: 2 * time.Second,
 		WriteTimeout:      3 * time.Second,
@@ -48,8 +48,8 @@ func TestAppConfigEachTimeoutFieldIndependentlyOverridable(t *testing.T) {
 		ShutdownTimeout:   5 * time.Second,
 	}})
 
-	base := defaultConfig()
-	want := Config{
+	base := defaultServerConfig()
+	want := ServerConfig{
 		Addr:              base.Addr,
 		Env:               base.Env,
 		ReadTimeout:       1 * time.Second,
@@ -64,7 +64,7 @@ func TestAppConfigEachTimeoutFieldIndependentlyOverridable(t *testing.T) {
 }
 
 func TestAppConfigFullyResolvedConfigPassesThroughUnchanged(t *testing.T) {
-	loaded := Config{
+	loaded := ServerConfig{
 		Addr:              ":8080",
 		Env:               "prod",
 		ReadTimeout:       11 * time.Second,
@@ -74,7 +74,7 @@ func TestAppConfigFullyResolvedConfigPassesThroughUnchanged(t *testing.T) {
 		ShutdownTimeout:   15 * time.Second,
 	}
 
-	a := New(AppConfig{Config: loaded})
+	a := New(AppConfig{Server: loaded})
 
 	if a.cfg != loaded {
 		t.Fatalf("cfg = %+v, want %+v (every field was already set, so nothing should change)", a.cfg, loaded)

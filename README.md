@@ -57,7 +57,7 @@ The import path is the module path above; the package name is `gwt` (they don't 
 | Security | Opt-in `SecureHeaders`, `MaxBodySize`, `HSTS` middleware |
 | Authentication | Generic, scheme-agnostic `Auth` middleware + `Ctx.Identity` |
 | Lifecycle | `Run`/`RunContext` with graceful shutdown, startup/shutdown hooks |
-| Config | Env-based `LoadConfig`, fail-fast on malformed values |
+| Config | Env-based `LoadServerConfig`, fail-fast on malformed values |
 | Scaffolding | `gwt-cli new` — runnable app + Dockerfile/compose/deploy script |
 
 ## Quick start
@@ -210,7 +210,7 @@ There's no functional-options layer here: `AppConfig` is a plain struct. Set the
 
 ```go
 type AppConfig struct {
-	Config       Config // Addr, Env, and timeouts — see Configuration below
+	Server       ServerConfig // Addr, Env, and timeouts — see Configuration below
 	Logger       *slog.Logger
 	Templates    *template.Template
 	ErrorHandler func(*Ctx, error)
@@ -222,7 +222,7 @@ type AppConfig struct {
 
 | Field | Effect |
 |---|---|
-| `Config` | Address, environment, and timeouts — any zero-value field falls back to the default for that field. Typically `LoadConfig()`'s result. |
+| `Server` | Address, environment, and timeouts — any zero-value field falls back to the default for that field. Typically `LoadServerConfig()`'s result. |
 | `Logger` | Override the default logger |
 | `Templates` | A pre-parsed template set, if you'd rather not use `LoadTemplates` |
 | `ErrorHandler` | Override how a returned error becomes a response |
@@ -237,7 +237,7 @@ app := gwt.New() // every default
 ```
 
 ```go
-app := gwt.New(gwt.AppConfig{Config: gwt.Config{Addr: ":9000"}})
+app := gwt.New(gwt.AppConfig{Server: gwt.ServerConfig{Addr: ":9000"}})
 ```
 
 ```go
@@ -412,23 +412,23 @@ app.Run(addr ...string) error
 app.RunContext(ctx context.Context, addr ...string) error
 ```
 
-`Run` is a convenience that triggers shutdown on `SIGINT`/`SIGTERM`. `RunContext` triggers shutdown when `ctx` is done. `addr` is optional and overrides `Config.Addr` when given, so `app.Run(":8080")` works directly.
+`Run` is a convenience that triggers shutdown on `SIGINT`/`SIGTERM`. `RunContext` triggers shutdown when `ctx` is done. `addr` is optional and overrides `ServerConfig.Addr` when given, so `app.Run(":8080")` works directly.
 
-Either way: on shutdown, in-flight requests get up to `Config.ShutdownTimeout` to finish before the server closes; `AppConfig.OnShutdown` hooks then run in **LIFO** order (last registered, first run — symmetric with `defer`), each one always running regardless of earlier failures. `AppConfig.OnStart` hooks run in **FIFO** order before the server starts serving; the first error aborts startup. A panicking hook becomes an error, not a process crash. Both functions return `nil` on a clean shutdown, never `http.ErrServerClosed`.
+Either way: on shutdown, in-flight requests get up to `ServerConfig.ShutdownTimeout` to finish before the server closes; `AppConfig.OnShutdown` hooks then run in **LIFO** order (last registered, first run — symmetric with `defer`), each one always running regardless of earlier failures. `AppConfig.OnStart` hooks run in **FIFO** order before the server starts serving; the first error aborts startup. A panicking hook becomes an error, not a process crash. Both functions return `nil` on a clean shutdown, never `http.ErrServerClosed`.
 
 ### Configuration
 
 ```go
-type Config struct {
+type ServerConfig struct {
 	Addr, Env string
 	ReadTimeout, ReadHeaderTimeout, WriteTimeout time.Duration
 	IdleTimeout, ShutdownTimeout                 time.Duration
 }
 
-func LoadConfig() (Config, error)
+func LoadServerConfig() (ServerConfig, error)
 ```
 
-`LoadConfig` reads from the environment and fails fast (naming the offending variable) if a `*_TIMEOUT` value is set but unparsable:
+`LoadServerConfig` reads from the environment and fails fast (naming the offending variable) if a `*_TIMEOUT` value is set but unparsable:
 
 | Env var | Default |
 |---|---|
@@ -441,11 +441,11 @@ func LoadConfig() (Config, error)
 | `SHUTDOWN_TIMEOUT` | `10s` |
 
 ```go
-cfg, err := gwt.LoadConfig()
+cfg, err := gwt.LoadServerConfig()
 if err != nil {
 	log.Fatal(err)
 }
-app := gwt.New(gwt.AppConfig{Config: cfg})
+app := gwt.New(gwt.AppConfig{Server: cfg})
 ```
 
 ### Logging
@@ -512,7 +512,7 @@ go run .
 - **`Dockerfile`** — multi-stage build (`golang:1.24.4` → `alpine:latest`, `CGO_ENABLED=0`), copying `static/` into the runtime image (templates are embedded in the binary)
 - **`docker-compose.yml`** — single service, `env_file: .env`, `restart: unless-stopped`
 - **`update_image`** — local rebuild-and-restart deploy script
-- **`.env.example`** — one line per `Config` field, plus the two demo `ADMIN_*` credentials
+- **`.env.example`** — one line per `ServerConfig` field, plus the two demo `ADMIN_*` credentials
 - **`.dockerignore`**
 
 Flags: `-module <path>` (Go module path, default the project name), `-port <num>` (default `8000`), `-force` (overwrite an existing non-empty directory). Flags go before the name:

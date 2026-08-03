@@ -61,7 +61,7 @@ func TestRunContextGracefulShutdownWaitsForInFlightRequest(t *testing.T) {
 	var shutdownOrder []string
 
 	a := New(AppConfig{
-		Config: Config{Addr: addr, ShutdownTimeout: 2 * time.Second},
+		Server: ServerConfig{Addr: addr, ShutdownTimeout: 2 * time.Second},
 		Logger: discardLogger(),
 		OnShutdown: []func(context.Context) error{
 			func(ctx context.Context) error {
@@ -162,7 +162,7 @@ func TestRunContextGracefulShutdownWaitsForInFlightRequest(t *testing.T) {
 func TestServerReadHeaderTimeoutDropsStalledConnection(t *testing.T) {
 	addr := testAddr(t)
 	a := New(AppConfig{
-		Config: Config{Addr: addr, ReadHeaderTimeout: 150 * time.Millisecond},
+		Server: ServerConfig{Addr: addr, ReadHeaderTimeout: 150 * time.Millisecond},
 		Logger: discardLogger(),
 	})
 	a.GET("/", func(c *Ctx) error { return nil })
@@ -204,7 +204,7 @@ func TestServerReadHeaderTimeoutDropsStalledConnection(t *testing.T) {
 func TestPanicInOnStartHookBecomesError(t *testing.T) {
 	addr := testAddr(t)
 	a := New(AppConfig{
-		Config: Config{Addr: addr},
+		Server: ServerConfig{Addr: addr},
 		Logger: discardLogger(),
 		OnStart: []func(context.Context) error{
 			func(ctx context.Context) error {
@@ -225,7 +225,7 @@ func TestPanicInOnStartHookBecomesError(t *testing.T) {
 func TestPanicInOnShutdownHookBecomesJoinedError(t *testing.T) {
 	addr := testAddr(t)
 	a := New(AppConfig{
-		Config: Config{Addr: addr, ShutdownTimeout: time.Second},
+		Server: ServerConfig{Addr: addr, ShutdownTimeout: time.Second},
 		Logger: discardLogger(),
 		OnShutdown: []func(context.Context) error{
 			func(ctx context.Context) error {
@@ -261,7 +261,7 @@ func TestPanicInOnShutdownHookBecomesJoinedError(t *testing.T) {
 func TestRunContextRepeatedStartStop(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		addr := testAddr(t)
-		a := New(AppConfig{Config: Config{Addr: addr, ShutdownTimeout: time.Second}, Logger: discardLogger()})
+		a := New(AppConfig{Server: ServerConfig{Addr: addr, ShutdownTimeout: time.Second}, Logger: discardLogger()})
 		a.GET("/", func(c *Ctx) error { return c.NoContent(http.StatusOK) })
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -292,7 +292,7 @@ func TestRunContextRepeatedStartStop(t *testing.T) {
 
 func TestRunContextReturnsNilNotErrServerClosed(t *testing.T) {
 	addr := testAddr(t)
-	a := New(AppConfig{Config: Config{Addr: addr, ShutdownTimeout: time.Second}, Logger: discardLogger()})
+	a := New(AppConfig{Server: ServerConfig{Addr: addr, ShutdownTimeout: time.Second}, Logger: discardLogger()})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	runErrCh := make(chan error, 1)

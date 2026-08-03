@@ -14,7 +14,7 @@ import (
 // Shutdown is triggered by SIGINT or SIGTERM (via signal.NotifyContext)
 // and performed gracefully, per RunContext.
 //
-// addr is optional and overrides Config.Addr when given, so app.Run() uses
+// addr is optional and overrides ServerConfig.Addr when given, so app.Run() uses
 // the configured address and app.Run(":8080") forces one. Passing more
 // than one address is meaningless; only addr[0] is used.
 func (a *App) Run(addr ...string) error {
@@ -26,7 +26,7 @@ func (a *App) Run(addr ...string) error {
 // RunContext starts the App's HTTP server and blocks until it shuts down.
 // ctx is used for exactly one thing: knowing when to begin shutdown. When
 // ctx is done, RunContext calls http.Server.Shutdown with a fresh context
-// derived from Config.ShutdownTimeout — independent of ctx (which may
+// derived from ServerConfig.ShutdownTimeout — independent of ctx (which may
 // already be canceled) and independent of any AppConfig.BaseContext func.
 //
 // ctx is never wired as http.Server.BaseContext: doing so would cancel
@@ -35,7 +35,7 @@ func (a *App) Run(addr ...string) error {
 // gracefully" from the outside, but in-flight handlers would see a
 // canceled context and likely fail). See CLAUDE.md's "Things to avoid".
 //
-// addr is optional and overrides Config.Addr when given, as in Run.
+// addr is optional and overrides ServerConfig.Addr when given, as in Run.
 //
 // RunContext returns nil on a clean graceful shutdown, not
 // http.ErrServerClosed.

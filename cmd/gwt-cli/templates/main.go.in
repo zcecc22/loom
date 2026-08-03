@@ -17,13 +17,13 @@ import (
 var templatesFS embed.FS
 
 func main() {
-	cfg, err := gwt.LoadConfig()
+	cfg, err := gwt.LoadServerConfig()
 	if err != nil {
 		slog.Error("gwt: invalid config", "err", err)
 		os.Exit(1)
 	}
 
-	app := gwt.New(gwt.AppConfig{Config: cfg})
+	app := gwt.New(gwt.AppConfig{Server: cfg})
 
 	if err := app.LoadTemplates(templatesFS, "templates/*.tmpl"); err != nil {
 		app.Logger().Error("gwt: loading templates", "err", err)

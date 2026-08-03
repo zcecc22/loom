@@ -1,6 +1,6 @@
 // Command basic is a single-file tour of every construct gwt provides:
-// config loading (LoadConfig, NewLogger), full construction (AppConfig —
-// Config, Logger, Templates, ErrorHandler, OnStart, OnShutdown,
+// config loading (LoadServerConfig, NewLogger), full construction (AppConfig —
+// Server, Logger, Templates, ErrorHandler, OnStart, OnShutdown,
 // BaseContext), all five routing verbs plus the generic Handle and the
 // net/http escape hatch HandleHTTP, middleware (Use, route-level mw,
 // Chain, the automatic Logging/Recover pair, and the opt-in
@@ -44,9 +44,9 @@ type Item struct {
 // errNoSuchItem stands in for whatever a real storage layer would return.
 var errNoSuchItem = errors.New("no such item")
 
-func newApp(cfg gwt.Config, logger *slog.Logger) (*gwt.App, error) {
+func newApp(cfg gwt.ServerConfig, logger *slog.Logger) (*gwt.App, error) {
 	app := gwt.New(gwt.AppConfig{
-		Config: cfg,
+		Server: cfg,
 		Logger: logger,
 		OnStart: []func(context.Context) error{
 			func(ctx context.Context) error {
@@ -225,7 +225,7 @@ func envOrDefault(key, fallback string) string {
 }
 
 func main() {
-	cfg, err := gwt.LoadConfig()
+	cfg, err := gwt.LoadServerConfig()
 	if err != nil {
 		slog.Error("gwt: invalid config", "err", err)
 		os.Exit(1)
@@ -260,7 +260,7 @@ func main() {
 	// Run derives its shutdown-trigger context from OS signals and calls
 	// RunContext internally — call RunContext directly instead if you
 	// need your own cancellation source (e.g. a larger app's own
-	// shutdown signal). Run(":9000") would override Config.Addr.
+	// shutdown signal). Run(":9000") would override ServerConfig.Addr.
 	if err := app.Run(); err != nil {
 		app.Logger().Error("server exited with error", "err", err)
 		os.Exit(1)

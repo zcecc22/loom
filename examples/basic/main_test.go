@@ -16,7 +16,7 @@ import (
 // construct's edge cases in depth.
 func Example() {
 	logger := gwt.NewLogger("dev")
-	app, err := newApp(gwt.Config{Env: "dev"}, logger)
+	app, err := newApp(gwt.ServerConfig{Env: "dev"}, logger)
 	if err != nil {
 		fmt.Println("setup failed:", err)
 		return
