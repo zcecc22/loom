@@ -2,11 +2,11 @@
 
 Guide for Claude Code sessions working on this repo. Keep this short; read it first, then act.
 
-> **Status:** All 22 Tier 1–5 backlog items plus Tier 6 (static/security/auth) are implemented and passing, followed by three v2-era API revisions (embedded logger/default middleware/`Group` removed; functional options replaced by `AppConfig`; dead indirection removed) and, as of 2026-08-03, **v3: a gin-style `Ctx` API** — handlers are now `func(*gwt.Ctx) error`, with response/request helpers on `Ctx`, an `*HTTPError` error contract, a loaded template set, and the `Render*` helpers removed. See ISSUES.md's "API revision — v3" section for the full reasoning and what was explicitly declined. `go build ./...`, `go vet ./...`, `go test ./...`, and `go test -race ./...` are all clean. The library (`gwt`), the scaffolder (`cmd/gwt-cli`), and the reference example (`examples/basic`) all exist. See `ISSUES.md`'s "Recently completed" for what shipped and its test coverage, and "Deferred" for what's intentionally still out of scope (form validation, session storage, CSRF).
+> **Status:** All 22 Tier 1–5 backlog items plus Tier 6 (static/security/auth) are implemented and passing, followed by three v2-era API revisions (embedded logger/default middleware/`Group` removed; functional options replaced by `AppConfig`; dead indirection removed) and, as of 2026-08-03, **v3: a gin-style `Ctx` API** — handlers are now `func(*gwt.Ctx) error`, with response/request helpers on `Ctx`, an `*HTTPError` error contract, a loaded template set, and the `Render*` helpers removed. See ISSUES.md's "API revision — v3" section for the full reasoning and what was explicitly declined. The module has since moved to its public home at `github.com/zcecc22/go-web-toolkit` — see ISSUES.md's "publishing prep" section. `go build ./...`, `go vet ./...`, `go test ./...`, and `go test -race ./...` are all clean. The library (`gwt`), the scaffolder (`cmd/gwt-cli`), and the reference example (`examples/basic`) all exist. See `ISSUES.md`'s "Recently completed" for what shipped and its test coverage, and "Deferred" for what's intentionally still out of scope (form validation, session storage, CSRF).
 
 ## What this project is
 
-`gwt` (module `git.frentzel.xyz/home/zcecc22/git/go-web-toolkit.git`, package `gwt`) is a **zero-dependency, stdlib-only Go web toolkit** — a redesign of an earlier project of the same name (`github.com/zcecc22/gwt`, mirrored at `/home/zcecc22/git/gwt.git`). It is a thin helper layer over `net/http` that eliminates boilerplate around routing, middleware, server lifecycle, config, and JSON/HTML rendering. It is deliberately **not a framework**: no router DSL beyond what stdlib already gives us, no ORM, no DI container.
+`gwt` (module `github.com/zcecc22/go-web-toolkit`, package `gwt`) is a **zero-dependency, stdlib-only Go web toolkit** — a redesign of an earlier project of the same name (`github.com/zcecc22/gwt`, mirrored at `/home/zcecc22/git/gwt.git`). It is a thin helper layer over `net/http` that eliminates boilerplate around routing, middleware, server lifecycle, config, and JSON/HTML rendering. It is deliberately **not a framework**: no router DSL beyond what stdlib already gives us, no ORM, no DI container.
 
 Scope, relative to v1:
 - **Kept and hardened:** routing/middleware, JSON/HTML-template rendering, a project scaffolder with Docker deployment output.
@@ -58,7 +58,7 @@ Scope, relative to v1:
 
 **Documentation is four files, and an API change touches all four:** `README.md` (user-facing), `doc.go` (godoc), `CLAUDE.md` (this file — design rationale and internal surface), and `ISSUES.md` (history and declined alternatives). `README.md` is the one most easily forgotten because nothing compiles it — but its snippets are the first thing a user copies, so verify them against the real library rather than by eye.
 
-**Note on the package/import-path mismatch:** the module path ends in `go-web-toolkit.git`, but the package clause is `package gwt` (brand continuity with v1). This is legal Go and `goimports`/`go doc` resolve it correctly, but don't be surprised by it — a naive guess from the import path alone would land on `go-web-toolkit` or worse.
+**Note on the package/import-path mismatch:** the module path is `github.com/zcecc22/go-web-toolkit`, but the package clause is `package gwt` (brand continuity with v1). This is legal Go and `goimports`/`go doc` resolve it correctly, but don't be surprised by it — a naive guess from the import path alone would land on `go-web-toolkit`, not `gwt`.
 
 ## The API in 8 lines
 

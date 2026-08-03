@@ -6,7 +6,7 @@
 package main
 
 import (
-	gwt "git.frentzel.xyz/home/zcecc22/git/go-web-toolkit.git"
+	gwt "github.com/zcecc22/go-web-toolkit"
 )
 
 func main() {
@@ -27,7 +27,7 @@ That's a complete, working service: structured request logging, panic recovery, 
 ## Install
 
 ```
-go get git.frentzel.xyz/home/zcecc22/git/go-web-toolkit.git
+go get github.com/zcecc22/go-web-toolkit
 ```
 
 The import path is the module path above; the package name is `gwt` (they don't match — that's intentional, see [CLAUDE.md](CLAUDE.md)).
@@ -488,7 +488,7 @@ c.Logger() *slog.Logger
 ## Scaffolding a new project
 
 ```
-go install git.frentzel.xyz/home/zcecc22/git/go-web-toolkit.git/cmd/gwt-cli@latest
+go install github.com/zcecc22/go-web-toolkit/cmd/gwt-cli@latest
 
 gwt-cli new myapp
 cd myapp

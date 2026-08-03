@@ -10,7 +10,7 @@ import (
 
 // gwtModulePath is this toolkit's own module path, used as the import and
 // go.mod require path in generated projects.
-const gwtModulePath = "git.frentzel.xyz/home/zcecc22/git/go-web-toolkit.git"
+const gwtModulePath = "github.com/zcecc22/go-web-toolkit"
 
 func main() {
 	if len(os.Args) < 2 {

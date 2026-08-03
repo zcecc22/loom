@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 
-	gwt "git.frentzel.xyz/home/zcecc22/git/go-web-toolkit.git"
+	gwt "github.com/zcecc22/go-web-toolkit"
 )
 
 // Example demonstrates the App built by newApp (the same construction

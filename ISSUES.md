@@ -1,6 +1,6 @@
 # ISSUES.md — gwt backlog
 
-Prioritized implementation backlog, tier-ordered. **All 22 Tier 1–5 items are implemented and passing** (see "Recently completed" below, resolved 2026-08-02), plus three same-day **API revisions**: items 23–26 (embedded logger, default middleware, `Group` removed), items 27–28 (functional options replaced by a plain `AppConfig` struct, `Chain`'s loop reworked for clarity), and items 29–31 (dead indirection in `render.go` removed, `callHook` reworked, `runOnShutdown` commented) — see those sections for the full reasoning — plus **Tier 6** (items 32–37, resolved 2026-08-03): static file serving, opt-in security middleware, generic pluggable authentication, and a scaffold update wiring all three into `gwt-cli new`'s generated app. Then **v3** (items 38–45, resolved 2026-08-03): a gin-style `Ctx` API replacing `http.HandlerFunc` handlers and the `Render*` helpers — see the "API revision — v3" section. Finally **v3.1** (items 46–48, same day): one JSON error shape across every response gwt generates. The active backlog is currently empty — everything not yet built is intentionally out of scope, listed under "Deferred" with reasons.
+Prioritized implementation backlog, tier-ordered. **All 22 Tier 1–5 items are implemented and passing** (see "Recently completed" below, resolved 2026-08-02), plus three same-day **API revisions**: items 23–26 (embedded logger, default middleware, `Group` removed), items 27–28 (functional options replaced by a plain `AppConfig` struct, `Chain`'s loop reworked for clarity), and items 29–31 (dead indirection in `render.go` removed, `callHook` reworked, `runOnShutdown` commented) — see those sections for the full reasoning — plus **Tier 6** (items 32–37, resolved 2026-08-03): static file serving, opt-in security middleware, generic pluggable authentication, and a scaffold update wiring all three into `gwt-cli new`'s generated app. Then **v3** (items 38–45, resolved 2026-08-03): a gin-style `Ctx` API replacing `http.HandlerFunc` handlers and the `Render*` helpers — see the "API revision — v3" section. Then **v3.1** (items 46–48, same day): one JSON error shape across every response gwt generates. Finally, **publishing prep** (items 49+, 2026-08-03): the module path moved to its public GitHub home. The active backlog is currently empty — everything not yet built is intentionally out of scope, listed under "Deferred" with reasons.
 
 Every issue has a **Done when** criterion so completion is unambiguous. Every issue respects the hard stdlib-only rule from `CLAUDE.md` — no external dependencies without explicit user approval. Issue IDs are stable across tiers so future references don't shift as items get resolved.
 
@@ -195,6 +195,13 @@ v3 shipped with an inconsistency flagged at the time but left for the user to de
     Done when: `TestHandleHTTPErrorsAreLeftAlone` pins the behavior so a later "consistency" pass doesn't quietly change it.
 
 ---
+
+## API revision — 2026-08-03 (publishing prep)
+
+The repo is being published on GitHub at `github.com/zcecc22/go-web-toolkit`, replacing its prior internal host. Three changes, shipped as separate commits.
+
+49. ✅ **Module path migrated** from `git.frentzel.xyz/home/zcecc22/git/go-web-toolkit.git` to `github.com/zcecc22/go-web-toolkit`. Updated everywhere it appeared: `go.mod`, `cmd/gwt-cli/main.go`'s `gwtModulePath` constant (which feeds the scaffolder's generated `go.mod.in` and `main.go.in` via `{{.GwtModule}}`), `examples/basic`'s two import lines, and prose in README.md/CLAUDE.md. The old v1 project reference (`github.com/zcecc22/gwt`, a separate predecessor project) is untouched — it's historical context, not this module's path. Added an MIT `LICENSE` at the repo root. No `go.sum` — still zero dependencies.
+    Done when: `go build ./...`, `go vet ./...`, `go test ./...`, `go test -race ./...`, and `cmd/gwt-cli`'s `TestGeneratedProjectBuildsAndVets` are all clean, and no occurrence of the old path string remains in the repo.
 
 ## Deferred (explicitly out of scope — not oversights)
 

@@ -25,7 +25,7 @@ import (
 	"net/http"
 	"os"
 
-	gwt "git.frentzel.xyz/home/zcecc22/git/go-web-toolkit.git"
+	gwt "github.com/zcecc22/go-web-toolkit"
 )
 
 // templatesFS embeds the template set, so the binary renders correctly no
