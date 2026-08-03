@@ -61,6 +61,11 @@ func (a *App) Handle(method, pattern string, h Handler, mw ...Middleware) {
 // HandleHTTP), so whatever is still writing through it is the mux's own
 // response. That keeps the cost to one small wrapper per request.
 //
+// Being innermost is what makes that reliable rather than best-effort:
+// this wrapper is applied after the whole global chain, so the mux always
+// receives exactly a *notFoundWriter no matter what Use-added middleware
+// wraps around it, and HandleHTTP's type assertion cannot miss.
+//
 // The tempting alternative — asking ServeMux.Handler which pattern matches
 // — costs a second route lookup on every request, measurably as expensive
 // as the entire first one, to benefit only the responses that 404.

@@ -16,9 +16,10 @@ type identityContextKey struct{}
 //
 // authenticate is where the actual credential check lives — Basic auth via
 // r.BasicAuth(), a bearer token from the Authorization header, a signed
-// cookie, whatever the caller needs. Auth itself is scheme-agnostic: on
-// rejection it writes a plain 401 with no WWW-Authenticate header, since
-// it has no way to know which scheme authenticate implements.
+// cookie, whatever the caller needs. Auth itself is scheme-agnostic: a
+// rejection is a 401 carrying gwt's usual JSON error body and no
+// WWW-Authenticate header, since Auth has no way to know which scheme
+// authenticate implements.
 //
 // Auth is route-level middleware, passed as a trailing argument to
 // GET/POST/etc. — it is not global or automatic. Protecting only some

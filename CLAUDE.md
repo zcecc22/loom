@@ -145,7 +145,7 @@ All symbols live in package `gwt` at the module root, except the scaffolder CLI 
 - `App.HSTS() Middleware` — `Strict-Transport-Security: max-age=31536000; includeSubDomains`. Kept separate from `SecureHeaders` deliberately: it's only correct when the deployment is actually reached over HTTPS. Gate it per-deployment (e.g. on `Env == "prod"`).
 
 **`auth.go`**
-- `App.Auth(authenticate func(r *http.Request) (identity string, ok bool)) Middleware` — `!ok` → 401 (plain `http.Error`, no `WWW-Authenticate` header, since `Auth` doesn't know the scheme) and `next` never runs; `ok` → stashes `identity` in the request context and calls `next`. Scheme-agnostic on purpose.
+- `App.Auth(authenticate func(r *http.Request) (identity string, ok bool)) Middleware` — `!ok` → 401 rendered through `writeJSONError`, so it carries gwt's usual `{"error":...}` body; no `WWW-Authenticate` header, since `Auth` doesn't know the scheme. `next` never runs. `ok` → stashes `identity` in the request context and calls `next`. Scheme-agnostic on purpose.
 - `Identity(r *http.Request) (identity string, ok bool)` — package-level, for code holding only a request (middleware, `HandleHTTP` handlers). **`Ctx.Identity()` is the handler-side path** and simply delegates; the two always agree.
 - `Auth` is **route-level** middleware, passed as a trailing `mw` argument. Protecting a subset of routes is just a matter of only passing it to those routes; no grouping mechanism is needed or provided.
 
