@@ -1,153 +1,182 @@
-# CLAUDE.md — gwt v2 (Go Web Toolkit)
+# CLAUDE.md — gwt v3 (Go Web Toolkit)
 
 Guide for Claude Code sessions working on this repo. Keep this short; read it first, then act.
 
-> **Status:** All 22 Tier 1–5 backlog items are implemented and passing, plus three post-completion API revisions (embedded logger/default middleware/`Group` removed; functional options replaced by `AppConfig`; dead indirection removed — see ISSUES.md's "API revision" sections) and a Tier 6 adding static file serving, security middleware, authentication, and a scaffold update demonstrating all three in `gwt-cli new`'s generated app, all as of 2026-08-03. `go build ./...`, `go vet ./...`, `go test ./...`, and `go test -race ./...` are all clean. The library (`gwt`), the scaffolder (`cmd/gwt-cli`), and the reference example (`examples/basic`) all exist. See `ISSUES.md`'s "Recently completed" section for what shipped and its test coverage, and "Deferred" for what's intentionally still out of scope (form validation, session storage, CSRF).
+> **Status:** All 22 Tier 1–5 backlog items plus Tier 6 (static/security/auth) are implemented and passing, followed by three v2-era API revisions (embedded logger/default middleware/`Group` removed; functional options replaced by `AppConfig`; dead indirection removed) and, as of 2026-08-03, **v3: a gin-style `Ctx` API** — handlers are now `func(*gwt.Ctx) error`, with response/request helpers on `Ctx`, an `*HTTPError` error contract, a loaded template set, and the `Render*` helpers removed. See ISSUES.md's "API revision — v3" section for the full reasoning and what was explicitly declined. `go build ./...`, `go vet ./...`, `go test ./...`, and `go test -race ./...` are all clean. The library (`gwt`), the scaffolder (`cmd/gwt-cli`), and the reference example (`examples/basic`) all exist. See `ISSUES.md`'s "Recently completed" for what shipped and its test coverage, and "Deferred" for what's intentionally still out of scope (form validation, session storage, CSRF).
 
 ## What this project is
 
-`gwt` (module `git.frentzel.xyz/home/zcecc22/git/go-web-toolkit.git`, package `gwt`) is a **zero-dependency, stdlib-only Go web toolkit** — a redesign ("v2") of an earlier project of the same name (`github.com/zcecc22/gwt`, mirrored at `/home/zcecc22/git/gwt.git`). It is a thin helper layer over `net/http` that eliminates boilerplate around routing, middleware, server lifecycle, config, and JSON/HTML rendering. It is deliberately **not a framework**: no router DSL beyond what stdlib already gives us, no ORM, no DI container.
+`gwt` (module `git.frentzel.xyz/home/zcecc22/git/go-web-toolkit.git`, package `gwt`) is a **zero-dependency, stdlib-only Go web toolkit** — a redesign of an earlier project of the same name (`github.com/zcecc22/gwt`, mirrored at `/home/zcecc22/git/gwt.git`). It is a thin helper layer over `net/http` that eliminates boilerplate around routing, middleware, server lifecycle, config, and JSON/HTML rendering. It is deliberately **not a framework**: no router DSL beyond what stdlib already gives us, no ORM, no DI container.
 
-v2's scope, relative to v1:
+Scope, relative to v1:
 - **Kept and hardened:** routing/middleware, JSON/HTML-template rendering, a project scaffolder with Docker deployment output.
 - **New:** graceful server shutdown, plain-struct construction (`New(cfg ...AppConfig) *App`), startup/shutdown lifecycle hooks, fail-fast config loading, static file serving with directory-listing disabled, opt-in security-headers/body-size-limit/HSTS middleware, and a generic pluggable `Auth` middleware — none of which v1 had.
-- **Rescoped API:** construction takes a plain `AppConfig` struct instead of v1's all-free-function style; middleware stays plain `func(http.Handler) http.Handler` composition. (v2 briefly used a functional-options constructor — `Option`/`WithX` — before switching to `AppConfig`; see ISSUES.md's second "API revision" section for why.)
-- **Deferred (not built this phase, see ISSUES.md):** form parsing/validation, session storage/issuance, CSRF protection. (Static serving, security headers, and a generic auth *primitive* are now built — see Tier 6 — but session-store-backed auth and CSRF specifically remain deferred; `Auth`'s pluggable `authenticate` function is a building block someone could use to implement session-based auth on top, not a session implementation itself.)
+- **v3's rescoped API:** handlers take a `*Ctx` and return an `error`; rendering moved from `App.Render*(w, r, ...)` free-standing calls to `Ctx` methods (`c.JSON`, `c.HTML`, `c.String`); templates are parsed once via `LoadTemplates` rather than per request. Construction still takes a plain `AppConfig` struct, and **middleware is still plain `func(http.Handler) http.Handler`** — see Design Principle 2 for why that one deliberately did *not* become `Ctx`-native.
+- **Deferred (see ISSUES.md):** form parsing/validation, session storage/issuance, CSRF protection. (Static serving, security headers, and a generic auth *primitive* are built — but session-store-backed auth and CSRF specifically remain deferred; `Auth`'s pluggable `authenticate` function is a building block someone could use to implement session-based auth on top, not a session implementation itself.)
 
 ## Design principles (non-negotiable without user approval)
 
 1. **Stdlib only.** Zero external dependencies. Any change touching `go.mod` requires explicit user approval. This is the defining property carried over from v1 — routing rides on Go 1.22+ `http.ServeMux` method + wildcard patterns (`GET /items/{id}`) rather than a hand-rolled router, because stdlib already does it.
-2. **Plain-struct construction; plain-function middleware.** `App` is built via `New(cfg ...AppConfig) *App`, where `AppConfig` is an ordinary exported struct — set the fields you want, leave the rest zero. `cfg` is variadic only so `gwt.New()` (no argument) still works for the zero-config case; passing more than one `AppConfig` is meaningless and only the first is used. There is no functional-options layer: no `Option` type, no `WithX` constructors, no closures involved in configuring an `App`. (v2 originally used functional options here — `type Option func(*App)` plus a dozen `WithX` functions — but a source-review pass found that indirection genuinely harder to follow than the plain struct it now is; see ISSUES.md's second "API revision" section.) Middleware is `type Middleware func(http.Handler) http.Handler` composed by wrapping — no fluent chainable builder, no heavyweight combinator/pipeline abstraction.
-3. **The logger is embedded in `App`, and that's a deliberate, narrow exception to "explicit dependencies."** Every handler used to need `logger` threaded through every render call, and every app needed the same logger passed twice more to build its middleware stack — pure repetition with zero payoff, since there is exactly one logger per `App`. `RenderJSON`/`RenderTemplate`/`RenderServerError`/`Logging`/`Recover` are now `App` methods that read `a.logger` implicitly instead of taking it as a parameter. **This does not generalize** — it does not mean dependencies should become implicit generally. There is no service locator, no other hidden state, and no plan to embed anything else this way. If a future case seems to call for it, treat it as a new decision, not a precedent already set.
-4. **Every `App` is logged and panic-safe with zero setup.** `New()` unconditionally wires `Logging()` and `Recover()` as the App's outermost middleware — there is no option to skip this. `gwt.New()` alone is a complete, safe starting point; `Use(mw ...Middleware)` adds anything further on top (stacked closer to the handler, so `Recover` still catches panics inside it). This is a deliberate behavior change, not just an ergonomics one — weigh it before ever making it optional.
-5. **Idiomatic Go.** `net/http` handlers, `log/slog`, `html/template`. No reinventing stdlib patterns.
-6. **The scaffold is the spec.** `gwt-cli new` must always produce a runnable, `go vet`-clean project with a working Docker deployment artifact — it is the canonical usage example, same role it played in v1. `examples/basic/main.go` is a secondary reference — a comprehensive single-file tour of every construct in the API, kept deliberately more exhaustive than the scaffold's own generated app — but it is still not shaped for scaffold-template reuse (the scaffolder has its own embedded templates under `cmd/gwt-cli/templates/`).
-7. **No speculative abstractions.** New helpers land when a real use case needs them, not before. This is why `RequestID` middleware, route introspection (`App.Routes()`), and a `Logging`/`Recover` opt-out were cut to ISSUES.md's Deferred tier rather than built speculatively. It's also why `Group` (a prefix-scoped nested route builder) was built, then **removed** — routing is flat by design now: explicit verb methods plus one generic `Handle(method, pattern, h, mw...)`, nothing more.
+2. **Handlers are `Ctx`-based; middleware stays plain `net/http`.** `type Handler func(*Ctx) error` for route handlers, but `type Middleware func(http.Handler) http.Handler` — unchanged — for middleware. This asymmetry is deliberate and load-bearing: **global middleware must cover the mux's own 404/405 responses**, and an unmatched request never reaches a route, so it has no `Ctx` and no path wildcards. A `Ctx`-native middleware chain would have to synthesize a meaningless `Ctx` around the bare mux. Gin escapes this because its router owns `NoRoute`; stdlib `ServeMux` gives no such hook. Keeping the stdlib shape also means any third-party or stdlib `http.Handler` middleware drops straight in — a real asset for a zero-dependency toolkit. The `Ctx` is built in the route adapter inside `Handle`, which is the only place it is constructed.
+3. **Plain-struct construction.** `App` is built via `New(cfg ...AppConfig) *App`, where `AppConfig` is an ordinary exported struct — set the fields you want, leave the rest zero. `cfg` is variadic only so `gwt.New()` (no argument) still works for the zero-config case; passing more than one `AppConfig` is meaningless and only the first is used. There is no functional-options layer: no `Option` type, no `WithX` constructors. (That was tried and found harder to follow on review than the plain struct it now is; see ISSUES.md's second "API revision" section.)
+4. **The logger is embedded in `App`, and that's a deliberate, narrow exception to "explicit dependencies."** There is exactly one logger per `App`, and threading it through every render call was pure repetition. `Ctx.Logger()`, `Logging`, `Recover`, and the error handler all read `a.logger` implicitly. **This does not generalize** — no service locator, no other hidden state, no plan to embed anything else this way. If a future case seems to call for it, treat it as a new decision, not a precedent already set.
+5. **Every `App` is logged and panic-safe with zero setup.** `New()` unconditionally wires `Logging()` and `Recover()` as the App's outermost middleware — there is no option to skip this. `gwt.New()` alone is a complete, safe starting point; `Use(mw ...Middleware)` adds anything further on top (stacked closer to the handler, so `Recover` still catches panics inside it). This is a deliberate behavior change, not just an ergonomics one — weigh it before ever making it optional.
+6. **Idiomatic Go.** `net/http`, `log/slog`, `html/template`, `fs.FS`. No reinventing stdlib patterns. `Ctx.W` and `Ctx.R` stay exported so dropping to raw `net/http` is always one field away — `Ctx` is a convenience layer, never a wall.
+7. **The scaffold is the spec.** `gwt-cli new` must always produce a runnable, `go vet`-clean project with a working Docker deployment artifact — it is the canonical usage example, same role it played in v1. `examples/basic/main.go` is a secondary reference — a comprehensive single-file tour of every construct in the API, kept deliberately more exhaustive than the scaffold's own generated app — but it is still not shaped for scaffold-template reuse (the scaffolder has its own embedded templates under `cmd/gwt-cli/templates/`).
+8. **No speculative abstractions.** New helpers land when a real use case needs them, not before. This is why `RequestID` middleware, route introspection (`App.Routes()`), and a `Logging`/`Recover` opt-out were cut to ISSUES.md's Deferred tier rather than built speculatively. It's also why `Group` (a prefix-scoped nested route builder) was built, then **removed** — routing is flat by design: explicit verb methods plus one generic `Handle(method, pattern, h, mw...)`, nothing more. **Flat routing was reaffirmed during the v3 redesign**, when reintroducing `Group` was explicitly offered and declined. It is also why gin's `c.Set`/`c.Get` were **not** ported — see Conventions.
 
 ## Repo layout
 
 ```
 .
-├── doc.go                 Package doc comment: what gwt is/isn't, minimal usage example
-├── app.go                 App struct, AppConfig struct, New(), Use(), Logger()
-├── router.go               Get/Post/Put/Patch/Delete/Handle — flat routing, no Group
-├── middleware.go           Middleware type, Chain(), App.Logging(), App.Recover()
-├── server.go               Run()/RunContext(), graceful shutdown, startup/shutdown hooks
-├── config.go               Config struct, LoadConfig() (Config, error)
-├── logging.go               NewLogger(env) *slog.Logger
-├── render.go                App.RenderJSON/RenderTemplate/RenderServerError (+ unexported cores)
-├── static.go                App.ServeStatic() — directory serving, listing disabled by default
-├── security.go               App.SecureHeaders()/MaxBodySize()/HSTS() — all opt-in
-├── auth.go                   App.Auth() + package-level Identity() — generic pluggable auth
-├── *_test.go                 Co-located tests for each file above
+├── doc.go                 Package doc: what gwt is/isn't, handler + middleware model
+├── app.go                 App struct, AppConfig struct, New(), Use(), Logger(), Handler()
+├── ctx.go                 Ctx, Handler, H — request/response helpers (the v3 core)
+├── errors.go              HTTPError, Status(), StatusErr(), App.handleError
+├── router.go              GET/POST/PUT/PATCH/DELETE, Handle, HandleHTTP — flat routing
+├── middleware.go          Middleware type, Chain(), App.Logging(), App.Recover(), statusWriter
+├── server.go              Run()/RunContext(), graceful shutdown, startup/shutdown hooks
+├── config.go              Config struct, LoadConfig() (Config, error)
+├── logging.go             NewLogger(env) *slog.Logger
+├── render.go              App.LoadTemplates() + unexported serverError (http-level 500 path)
+├── static.go              App.ServeStatic() — directory serving, listing disabled by default
+├── security.go            App.SecureHeaders()/MaxBodySize()/HSTS() — all opt-in
+├── auth.go                App.Auth() + package-level Identity() — generic pluggable auth
+├── *_test.go              Co-located tests for each file above
 ├── examples/
-│   └── basic/              Single-file tour of every construct (main.go + templates/ + static/)
+│   └── basic/             Single-file tour of every construct (main.go + templates/ + static/)
 ├── cmd/
-│   └── gwt-cli/            `gwt-cli new <name>` project scaffolder
+│   └── gwt-cli/           `gwt-cli new <name>` project scaffolder
 │       ├── main.go            Subcommand dispatcher + flags (-module, -port, -force)
 │       ├── scaffold.go        Embedded-FS manifest + template engine
 │       └── templates/         //go:embed all:templates — app source + Docker deploy files
-├── go.mod                  Go 1.24.4, zero external deps
-├── CLAUDE.md                This file
-└── ISSUES.md                 Prioritized backlog — read before proposing new work
+├── go.mod                 Go 1.24.4, zero external deps
+├── CLAUDE.md              This file
+└── ISSUES.md              Prioritized backlog — read before proposing new work
 ```
 
 **Note on the package/import-path mismatch:** the module path ends in `go-web-toolkit.git`, but the package clause is `package gwt` (brand continuity with v1). This is legal Go and `goimports`/`go doc` resolve it correctly, but don't be surprised by it — a naive guess from the import path alone would land on `go-web-toolkit` or worse.
+
+## The API in 8 lines
+
+```go
+app := gwt.New()
+app.GET("/items/{id}", func(c *gwt.Ctx) error {
+	item, err := store.Find(c.Param("id"))
+	if err != nil {
+		return gwt.Status(404, "no such item")
+	}
+	return c.JSON(200, item)
+})
+app.Run()
+```
 
 ## Public API surface
 
 All symbols live in package `gwt` at the module root, except the scaffolder CLI under `cmd/gwt-cli`.
 
+**`ctx.go`** — the v3 core.
+- `type H map[string]any` — JSON object shorthand: `gwt.H{"hello": "world"}`.
+- `type Handler func(*Ctx) error` — a route handler. Returning non-nil hands off to the App's error handler; that's what keeps failure paths to one line.
+- `type Ctx struct { W http.ResponseWriter; R *http.Request; ... }` — built once per matched route, in `Handle`'s adapter. `W`/`R` exported on purpose (Principle 6).
+- Request: `Param(name)` (stdlib `PathValue`), `Query(name)`, `QueryDefault(name, def)`, `FormValue(name)`, `GetHeader(name)`, `Bind(v any) error` (JSON decode; a malformed body yields a **400**, not a 500), `Context()`, `Value(key any) any`, `Identity() (string, bool)`, `Logger()`.
+- Response: `JSON(status, data) error`, `String(status, s) error`, `Stringf(status, format, args...) error`, `HTML(status, name, data) error`, `NoContent(status) error`, `Redirect(status, url) error`, `SetHeader(k, v)`, `Written() bool`.
+- **`String` vs `Stringf`:** `String` writes its argument literally (a stray `%` is safe); `Stringf` formats. The `f` suffix is what lets `go vet` check the format string — a single variadic `String` made `go vet` flag every non-constant argument, which is why they're split.
+- Every response helper funnels through one unexported `write`, which is the single place `wroteHeader` is set.
+
+**`errors.go`**
+- `type HTTPError struct { Code int; Message string; Err error }` with `Error()` and `Unwrap()`. `Message` is client-visible; `Err` is logged, **never sent**.
+- `Status(code int, message ...string) error` — message defaults to the standard text for `code`.
+- `StatusErr(code int, err error) error` — wraps a cause; client sees only the standard text.
+- `App.handleError` (unexported) — uses `AppConfig.ErrorHandler` if set, else `defaultErrorHandler`: `errors.As` finds an `*HTTPError` **anywhere in the chain** and uses its status/message; anything else is a 500 with a generic body. 4xx logs at Warn, 5xx at Error (so a bad URL can't fill the error log).
+- **The committed-response guard:** because `return c.JSON(...)` is the documented idiom, a handler can respond in full and *then* return an error (a write failure, a deferred cleanup). `handleError` checks `c.Written()` and only logs in that case — writing a second status would corrupt the response.
+
 **`app.go`**
-- `type App struct { ... }` — holds the mux, global middleware, config, logger, lifecycle hooks. Implements `http.Handler` (`ServeHTTP`), so it drops straight into `httptest.NewServer(app)` or nests inside another handler.
-- `type AppConfig struct { Config Config; Logger *slog.Logger; OnStart, OnShutdown []func(context.Context) error; BaseContext func(net.Listener) context.Context }` — every field optional, zero value = default. Set fields directly on a struct literal; there's no builder and no functional options involved.
-- `New(cfg ...AppConfig) *App` — resolves `cfg[0]` if given (nothing if not), fills any zero-value `Config` field via `resolveConfig` (see `config.go`), defaults the logger via `NewLogger(cfg.Env)` if `AppConfig.Logger` wasn't set, then unconditionally sets the App's global middleware to `[]Middleware{a.Logging(), a.Recover()}`. `gwt.New()` alone is a complete, working, logged, panic-safe app. **`cfg` is variadic only to keep the zero-argument call working** — passing more than one `AppConfig` is meaningless and only `cfg[0]` is used; do not read anything into that variadic beyond "optional single struct."
-- `App.Use(mw ...Middleware)` — the **only** mechanism for adding global (whole-app) middleware beyond the always-on `Logging`/`Recover` pair. Called any time after `New`, typically once, right after construction. Appends — stacked *after* the defaults, i.e. closer to the handler, so a panic or early exit inside `mw` is still caught/logged.
-- `App.Logger() *slog.Logger` — returns the App's resolved logger. Exists so callers that don't hold their own logger variable (the common case now) still have a way to log `Run`/`RunContext`'s returned error.
-- `App.Handler() http.Handler` — the fully-built handler (global middleware wrapped around the mux), for callers who want to run their own `http.Server`/supervisor instead of `Run`
-
-Construction examples (three independent ways to call `New`, not meant to run together):
-
-```go
-app := gwt.New() // every default
-
-app := gwt.New(gwt.AppConfig{Config: gwt.Config{Addr: ":9000"}})
-
-cfg, _ := gwt.LoadConfig()
-app := gwt.New(gwt.AppConfig{Config: cfg, Logger: myLogger})
-```
+- `type App struct { ... }` — mux, global middleware, config, logger, template set, error handler, lifecycle hooks, and the cached built handler. Implements `http.Handler`.
+- `type AppConfig struct { Config Config; Logger *slog.Logger; Templates *template.Template; ErrorHandler func(*Ctx, error); OnStart, OnShutdown []func(context.Context) error; BaseContext func(net.Listener) context.Context }` — every field optional, zero value = default.
+- `New(cfg ...AppConfig) *App` — resolves `cfg[0]` if given, fills any zero-value `Config` field via `resolveConfig`, defaults the logger via `NewLogger(cfg.Env)`, then unconditionally sets global middleware to `[]Middleware{a.Logging(), a.Recover()}`. **`cfg` is variadic only to keep the zero-argument call working.**
+- `App.Use(mw ...Middleware)` — the **only** mechanism for global middleware beyond the always-on pair. Appends, stacked *after* the defaults (closer to the handler).
+- `App.Logger() *slog.Logger`, `App.Handler() http.Handler`.
+- **`Handler()` composes the chain once, under a `sync.Once`, and caches it.** `ServeHTTP` used to rebuild the whole chain per request. Consequence to know: a `Use` call after serving has begun is **silently ignored**. Call `Use` before serving, right after `New`.
 
 **`router.go`** — flat routing only, no nesting/prefixing.
-- `App.Get/Post/Put/Patch/Delete(pattern string, h http.HandlerFunc, mw ...Middleware)` — thin sugar over stdlib `ServeMux` method+wildcard patterns; path params read via stdlib `r.PathValue("id")` directly (not wrapped — wrapping a one-line stdlib call would itself be a speculative abstraction).
-- `App.Handle(method, pattern string, h http.Handler, mw ...Middleware)` — the generic counterpart to the explicit verb methods: full `http.Handler`, verb passed as a plain string argument, `method == ""` matches any verb. Use this for verbs without a dedicated method (e.g. `OPTIONS`) or when the verb is only known at runtime.
+- `App.GET/POST/PUT/PATCH/DELETE(pattern string, h Handler, mw ...Middleware)` — uppercase, gin-style. Five verbs, same as before. **No `HEAD` or `OPTIONS` method**: stdlib `ServeMux` already matches HEAD against a `GET` pattern, and `Handle`'s documented reason for existing is verbatim "for verbs without a dedicated method (e.g. `OPTIONS`)" — adding one would contradict the reason `Handle` survived `Group`'s deletion.
+- `App.Handle(method, pattern string, h Handler, mw ...Middleware)` — generic verb as a plain string; `method == ""` matches any verb. This is where the `Ctx` adapter lives.
+- `App.HandleHTTP(method, pattern string, h http.Handler, mw ...Middleware)` — the raw `net/http` escape hatch, bypassing `Ctx` entirely (third-party handlers, proxies, `http.FileServer`). `ServeStatic` and `Handle` both build on it.
 
 **`middleware.go`**
-- `type Middleware func(http.Handler) http.Handler`
-- `Chain(mw ...Middleware) Middleware` — `Chain(A, B, C)(h) == A(B(C(h)))`; declared order equals request-flow order (A's pre-handler code runs first).
-- `App.Logging() Middleware` — logs method/path/status/duration once per request, using `a.logger`. v1's `RequestLogger` retyped as a method.
-- `App.Recover() Middleware` — recovers panics, renders a 500 via `a.RenderServerError`, using `a.logger`. v1's `RecoverPanic` retyped as a method. `New` wires `Chain(a.Logging(), a.Recover())` automatically — Logging outermost so it still logs the final status even when Recover converts a panic to a 500 (direct port of v1's `RequestLogger(RecoverPanic(...))` wiring, now automatic instead of hand-assembled).
+- `type Middleware func(http.Handler) http.Handler` — **unchanged in v3, deliberately** (Principle 2).
+- `Chain(mw ...Middleware) Middleware` — `Chain(A, B, C)(h) == A(B(C(h)))`; declared order equals request-flow order.
+- `App.Logging() Middleware` — logs method/path/status/duration once per request.
+- `App.Recover() Middleware` — recovers panics, logs with a stack, renders a 500 via the unexported `a.serverError` (it is http-level, so it has no `Ctx`).
+- `statusWriter` wraps every response to record the status. It **forwards `Flush`, `Hijack`, and `ReadFrom`, and exposes `Unwrap() http.ResponseWriter`** for `http.ResponseController`. This matters because `Logging` is always on and unremovable: anything `statusWriter` fails to forward is unreachable in *every* gwt app, which silently broke SSE, streaming, and WebSocket upgrades before v3. `Hijack` over a non-hijackable writer returns `http.ErrNotSupported`, the same sentinel `http.ResponseController` uses.
 
 **`server.go`**
-- `App.Run() error` — convenience: derives its context from `signal.NotifyContext(os.Interrupt, syscall.SIGTERM)`.
-- `App.RunContext(ctx context.Context) error` — `ctx` is used for exactly one thing: knowing *when* to begin shutdown. See Things to avoid for the `BaseContext` distinction.
-- `AppConfig.BaseContext func(net.Listener) context.Context` — passthrough to `http.Server.BaseContext`, a deliberately separate mechanism from shutdown signaling.
+- `App.Run(addr ...string) error` — derives its context from `signal.NotifyContext(os.Interrupt, syscall.SIGTERM)`. `addr` is optional and overrides `Config.Addr`, so `app.Run(":8080")` works.
+- `App.RunContext(ctx context.Context, addr ...string) error` — `ctx` is used for exactly one thing: knowing *when* to begin shutdown. See Things to avoid for the `BaseContext` distinction.
+- `AppConfig.BaseContext` — passthrough to `http.Server.BaseContext`, a deliberately separate mechanism from shutdown signaling.
 
 **`config.go`**
 - `type Config struct { Addr, Env string; ReadTimeout, ReadHeaderTimeout, WriteTimeout, IdleTimeout, ShutdownTimeout time.Duration }`
-- `LoadConfig() (Config, error)` — reads `ADDR` (default `:8000`), `ENV` (default `dev`), `READ_TIMEOUT` (5s), `READ_HEADER_TIMEOUT` (2s), `WRITE_TIMEOUT` (10s), `IDLE_TIMEOUT` (120s), `SHUTDOWN_TIMEOUT` (10s). Fails fast on a malformed `*_TIMEOUT` value, naming the offending variable — a deliberate v1→v2 signature break (v1's `LoadConfig() Config` silently ignored bad input; v2 does not).
-- `resolveConfig(c Config) Config` (unexported) — used by `New` to fill any zero-value field of `AppConfig.Config` with `defaultConfig()`'s value for that field. This is what makes `AppConfig{Config: Config{Addr: ":9000"}}` leave every other field (the timeouts especially) at a safe non-zero default instead of silently becoming an unset zero-value timeout. One consequence: there's no way to explicitly force a zero timeout through `AppConfig` — a zero value always reads as "unset, use the default." That trade-off is deliberate.
+- `LoadConfig() (Config, error)` — reads `ADDR` (default `:8000`), `ENV` (`dev`), `READ_TIMEOUT` (5s), `READ_HEADER_TIMEOUT` (2s), `WRITE_TIMEOUT` (10s), `IDLE_TIMEOUT` (120s), `SHUTDOWN_TIMEOUT` (10s). Fails fast on a malformed `*_TIMEOUT` value, naming the offending variable.
+- `resolveConfig(c Config) Config` (unexported) — fills any zero-value field from `defaultConfig()`. Consequence: there's no way to force a zero timeout — a zero value always reads as "unset, use the default." Deliberate.
 
 **`logging.go`**
-- `NewLogger(env string) *slog.Logger` — `env == "dev"` → `slog.NewTextHandler(os.Stderr, ...)`; anything else → `slog.NewJSONHandler(os.Stderr, ...)`.
+- `NewLogger(env string) *slog.Logger` — `env == "dev"` → `TextHandler`; anything else → `JSONHandler`. Both to `os.Stderr`.
 
 **`render.go`**
-- `App.RenderJSON(w, r, data any, statusCode int)` — marshal + write using `a.logger`; logs on marshal error. Direct port of v1's `RenderJson`, now a method.
-- `App.RenderTemplate(w, r, tmplPath string, data any, statusCode int)` — parses `tmplPath` per call, renders via `html/template` (auto-escaping, XSS-safe) into a `bytes.Buffer` before writing status + body, so partial writes on execute failure are impossible. Direct port of v1's `RenderTemplate`, including its buffered-write hardening, now a method.
-- `App.RenderServerError(w, r, err error)` — log + `http.Error` 500 using `a.logger`; shared error path for both helpers above and for `Recover`.
-- These are methods only — there is no free-function form and no unexported "core" layer underneath them either (an earlier version had one, delegating to `logger`-taking free functions, on the theory that `Recover` needed a form callable without an `App`; that was never true — `Recover` is itself an `App` method — so the indirection was removed once noticed). Don't add either form back without discussing it.
+- `App.LoadTemplates(fsys fs.FS, patterns ...string) error` — parses **once**, into the App's set, replacing anything loaded earlier or via `AppConfig.Templates`. `patterns` defaults to `"*.tmpl"`. Takes an `fs.FS`, so `os.DirFS("templates")` and `//go:embed` both work. Each template's name in the set is its base filename, which is what `Ctx.HTML` takes.
+- `serverError(w, r, err)` (unexported) — logs and writes a generic JSON 500 for the middleware layer, which has no `Ctx`. `Recover` is its only caller. CLAUDE.md previously warned against an unexported core layer under the render helpers; **that warning was about a layer proven dead** (nothing called it). This one is live and load-bearing — the distinction is "has a real caller," not "is unexported."
+- `RenderJSON`/`RenderTemplate`/`RenderServerError` **no longer exist.** Use `c.JSON`/`c.HTML`. Don't reintroduce them.
 
 **`static.go`**
-- `App.ServeStatic(urlPrefix, dir string, mw ...Middleware)` — registers `GET <urlPrefix>` (a subtree pattern; the caller supplies the trailing `/`, e.g. `"/static/"` — no implicit pattern rewriting, consistent with `Group`'s removal and the scaffolder's "no magic path transformations" principle) serving files from `dir` via `http.FileServer`. Wrapped in an unexported `noListingFileSystem` so a directory request without an `index.html` 404s instead of rendering a directory listing — the one behavior change from a bare `http.FileServer`. Path-traversal confinement is inherited from `http.Dir.Open`, not re-implemented.
+- `App.ServeStatic(urlPrefix, dir string, mw ...Middleware)` — registers `GET <urlPrefix>` (a subtree pattern; the caller supplies the trailing `/`, e.g. `"/static/"` — no implicit pattern rewriting) serving files from `dir` via `http.FileServer`, routed through `HandleHTTP`. Wrapped in an unexported `noListingFileSystem` so a directory request without an `index.html` 404s instead of rendering a listing. Path-traversal confinement is inherited from `http.Dir.Open`, not re-implemented.
 
-**`security.go`** — all three are opt-in via `Use` or route-level `mw`, never automatic (unlike `Logging`/`Recover`): a header like `X-Frame-Options` can break a legitimate use case (intentional iframe embedding), so it isn't safe to force on every `App` by default.
-- `App.SecureHeaders() Middleware` — sets `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`. Deliberately omits `X-XSS-Protection` (deprecated — the legacy filter it enabled had vulnerabilities of its own) and `Content-Security-Policy`/`Permissions-Policy` (no safe one-size-fits-all default; a wrong CSP breaks pages more than it helps, so it's left to the caller).
-- `App.MaxBodySize(n int64) Middleware` — wraps `r.Body` in `http.MaxBytesReader(w, r.Body, n)`. Defense-in-depth against a large-body DoS regardless of whether a reverse proxy in front of the app already enforces a limit — don't assume it does.
-- `App.HSTS() Middleware` — sets `Strict-Transport-Security: max-age=31536000; includeSubDomains`. Kept separate from `SecureHeaders` deliberately: it's only correct when this deployment is actually reached over HTTPS (directly or via a TLS-terminating reverse proxy) — enabling it for a plain-HTTP deployment (e.g. local dev) would be wrong, not just unnecessary. Enable it deliberately per-deployment (e.g. gated on `Env == "prod"`), don't bundle it into a default stack.
+**`security.go`** — all three are opt-in via `Use` or route-level `mw`, never automatic: a header like `X-Frame-Options` can break a legitimate use case (intentional iframe embedding), so it isn't safe to force on every `App`.
+- `App.SecureHeaders() Middleware` — `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`. Deliberately omits `X-XSS-Protection` (deprecated; the legacy filter had vulnerabilities of its own) and `Content-Security-Policy`/`Permissions-Policy` (no safe one-size-fits-all default).
+- `App.MaxBodySize(n int64) Middleware` — wraps `r.Body` in `http.MaxBytesReader`. Defense-in-depth regardless of whether a reverse proxy already enforces a limit — don't assume it does. Note `Ctx.Bind` does **not** limit body size itself; this is the mechanism.
+- `App.HSTS() Middleware` — `Strict-Transport-Security: max-age=31536000; includeSubDomains`. Kept separate from `SecureHeaders` deliberately: it's only correct when the deployment is actually reached over HTTPS. Gate it per-deployment (e.g. on `Env == "prod"`).
 
 **`auth.go`**
-- `App.Auth(authenticate func(r *http.Request) (identity string, ok bool)) Middleware` — calls `authenticate` per request; `!ok` → `401` (plain `http.Error`, no `WWW-Authenticate` header, since `Auth` doesn't know which scheme `authenticate` implements) and `next` is never called; `ok` → stashes `identity` in the request context and calls `next`. `authenticate` is where the real credential check lives (Basic via `r.BasicAuth()`, a bearer token, a signed cookie, whatever) — `Auth` itself is scheme-agnostic on purpose, so it doesn't lock callers into one auth scheme.
-- `Identity(r *http.Request) (identity string, ok bool)` — package-level function (not a method — it reads from the request context, which doesn't need an `App`) that reads back what `Auth` stashed. `ok` is `false` for a request that never passed through `Auth`.
-- `Auth` is **route-level** middleware — passed as a trailing `mw` argument to `Get`/`Post`/etc. — not global. Protecting a subset of routes is just a matter of only passing it to those routes' registration calls; no grouping mechanism is needed or provided (see `Group`'s removal).
+- `App.Auth(authenticate func(r *http.Request) (identity string, ok bool)) Middleware` — `!ok` → 401 (plain `http.Error`, no `WWW-Authenticate` header, since `Auth` doesn't know the scheme) and `next` never runs; `ok` → stashes `identity` in the request context and calls `next`. Scheme-agnostic on purpose.
+- `Identity(r *http.Request) (identity string, ok bool)` — package-level, for code holding only a request (middleware, `HandleHTTP` handlers). **`Ctx.Identity()` is the handler-side path** and simply delegates; the two always agree.
+- `Auth` is **route-level** middleware, passed as a trailing `mw` argument. Protecting a subset of routes is just a matter of only passing it to those routes; no grouping mechanism is needed or provided.
 
 **`cmd/gwt-cli`**
-- `gwt-cli new <name>` — flags `-module <path>`, `-port <num>`, `-force`. Emits a runnable gwt app (`main.go`, `go.mod`) demonstrating every Tier 6 feature alongside the render helpers: a `RenderJSON` route (`/`), a `RenderTemplate` route (`/page`, `templates/index.tmpl`, linking the generated stylesheet), `ServeStatic` (`/static/`, `static/style.css`), `Use(app.SecureHeaders())` applied globally, and an `Auth`-protected `/admin` route reading demo credentials from `ADMIN_USER`/`ADMIN_PASSWORD` (app-specific env vars, read directly via `os.Getenv` in `main.go` — not part of `gwt.Config`/`LoadConfig`). Plus the Docker deployment set: `Dockerfile` (now copies `static/` into the runtime image alongside `templates/`), `docker-compose.yml`, `update_image`, `.env.example` (includes the two demo `ADMIN_*` vars), `.dockerignore`. `.in` files run through `text/template`; other files are copied verbatim. `go mod tidy` is left as a manual step so the scaffold does not depend on network access.
+- `gwt-cli new <name>` — flags `-module <path>`, `-port <num>`, `-force`. Emits a runnable gwt app (`main.go`, `go.mod`) demonstrating the v3 API: a `c.JSON` route (`/`), a `c.HTML` route (`/page`) backed by `LoadTemplates` over an **embedded** `templates/`, `ServeStatic` (`/static/`), a `gwt.Status` error route (`/items/{id}`), `Use(app.SecureHeaders())`, and an `Auth`-protected `/admin` reading demo credentials from `ADMIN_USER`/`ADMIN_PASSWORD` (app-specific env vars read via `os.Getenv` — not part of `gwt.Config`). Plus the Docker set: `Dockerfile` (copies `static/` only — **templates are embedded in the binary now**), `docker-compose.yml`, `update_image`, `.env.example`, `.dockerignore`. `.in` files run through `text/template`; other files are copied verbatim. `go mod tidy` is left as a manual step so the scaffold does not depend on network access.
 
 ## Conventions
 
-- **`New` is non-fallible by design.** `New(cfg ...AppConfig) *App` never returns an error and never validates — mistakes (negative timeout, empty addr) surface at `Run()` time, which already returns `error`. The one thing that can meaningfully fail — malformed env values — fails inside `LoadConfig() (Config, error)`, called explicitly by the caller before `New`. Don't add validation to `New` or change its signature without discussing it first; it was specified this way deliberately.
-- **Global middleware wraps the whole built handler once**, at `Handler()`/`Run()` build time — not per-route. This means the App's global middleware (`Logging`/`Recover`, plus anything added via `Use`) also covers the mux's own 404/405 responses; route middleware (passed as trailing `mw ...Middleware` args to `Get`/`Post`/etc.) does not see those, since it only wraps the specific handler it's attached to. This is intentional, not an inconsistency.
-- **Middleware order is fixed: `Logging` → `Recover` → anything added via `Use` (in the order `Use` was called) → route-level `mw` → handler.** `Logging` is outermost so it logs the true final status even when `Recover` converts a panic to a 500; `Recover` is next so it catches panics from `Use`-added middleware too, not just the handler.
-- **`Logging` and `Recover` are the only *automatic* middleware.** Everything else added since — `SecureHeaders`, `MaxBodySize`, `HSTS`, `Auth` — is opt-in, via `Use` (whole-app) or route-level `mw` (per-route, `Auth`'s normal case). None of them get wired into `New` by default. Keep it that way: a header or an auth check can break a legitimate use case in a way logging/panic-recovery never do, so "safe for every App unconditionally" is a high, deliberately narrow bar that only `Logging`/`Recover` clear.
-- **Shutdown hooks run LIFO** (`AppConfig.OnShutdown` is a slice in registration order, execution is last-registered-first), symmetric with Go's own `defer` semantics. Startup hooks (`AppConfig.OnStart`) run FIFO, in registration order, and any error aborts startup before `ListenAndServe` is ever called. If a startup hook fails partway through a list, hooks already run are **not** automatically unwound — no rollback machinery, deliberately (stdlib-only, no transaction abstraction).
-- **The logger is the one exception to "handlers receive dependencies explicitly."** It's embedded in `App` and read implicitly by `App`'s own methods (`RenderJSON`, `RenderTemplate`, `RenderServerError`, `Logging`, `Recover`). Everything else stays explicit: no package-level state, no globals, no service locator. See Design Principle 3 for why this one exception exists and why it isn't a precedent for more.
-- Verb-first naming: `RenderJSON`, not `JSONRender`. File-per-role: routing in `router.go`, middleware in `middleware.go`, etc. — create a new file only if a genuinely new category appears.
+- **`New` is non-fallible by design.** It never returns an error and never validates — mistakes surface at `Run()`, which already returns `error`. The things that *can* fail have their own error returns: `LoadConfig()` and `LoadTemplates()`. Don't add validation to `New` or change its signature without discussing it first.
+- **Global middleware wraps the whole built handler once**, at `Handler()` build time — not per-route. So global middleware also covers the mux's own 404/405 responses; route middleware does not see those, since it only wraps the handler it's attached to. This is intentional, and it is the reason middleware stayed `net/http`-shaped (Principle 2).
+- **Middleware order is fixed: `Logging` → `Recover` → anything added via `Use` (in call order) → route-level `mw` → handler.** `Logging` is outermost so it logs the true final status even when `Recover` converts a panic to a 500; `Recover` is next so it catches panics from `Use`-added middleware too.
+- **`Logging` and `Recover` are the only *automatic* middleware.** `SecureHeaders`, `MaxBodySize`, `HSTS`, and `Auth` are all opt-in. Keep it that way: a header or an auth check can break a legitimate use case in a way logging/panic-recovery never do.
+- **Errors never leak to clients.** An `*HTTPError`'s `Message` is client-visible by construction; everything else renders as a generic 500 with the real cause logged. Don't put `err.Error()` in a response body.
+- **No `c.Set`/`c.Get`.** Gin has them; gwt deliberately does not. The `Ctx` is built in the innermost frame (after all middleware), so nothing is downstream of the handler to read what `c.Set` wrote — it would be a local variable with extra steps — and a gwt-namespaced key couldn't read what foreign middleware wrote under its own key type anyway. `Ctx.Value(key)` is the read side that actually has a consumer. Adding `Set`/`Get` would repeat ISSUES.md item 29 exactly: an abstraction justified by a premise that was false from the start.
+- **Shutdown hooks run LIFO** (symmetric with `defer`); startup hooks run FIFO and any error aborts startup before `ListenAndServe`. A partially-run startup list is **not** unwound — no rollback machinery, deliberately.
+- Verb-first naming: `RenderJSON`-style ordering, not `JSONRender`. File-per-role — create a new file only if a genuinely new category appears.
 - Every exported symbol must have a godoc comment. `go vet ./...` must stay clean.
-- slog keys are lowercase, no punctuation (`addr`, `method`, `uri`, `env`). Never `"Method:"` or similar.
+- slog keys are lowercase, no punctuation (`addr`, `method`, `path`, `env`, `status`). Never `"Method:"` or similar.
 
 ## Testing
 
-Stdlib only (`testing`, `net/http/httptest`, `encoding/json`). Co-locate tests: `middleware_test.go` next to `middleware.go`, etc. Every public function should have at least a happy-path and an error-path case. `go test -race ./...` must stay clean, particularly around `Run`'s goroutine and shutdown signaling — repeated start/stop cycles under `-race` are part of the suite, not optional.
+Stdlib only (`testing`, `net/http/httptest`, `encoding/json`). Co-locate tests: `ctx_test.go` next to `ctx.go`, etc. Every public function should have at least a happy-path and an error-path case. `go test -race ./...` must stay clean, particularly around `Run`'s goroutine and shutdown signaling — repeated start/stop cycles under `-race` are part of the suite, not optional.
+
+Test helpers live in `middleware_test.go` (`discardLogger`, `jsonLogger`), `render_test.go` (`templateDirFS`), and `ctx_test.go` (`serve`) — reuse them rather than re-rolling.
 
 ## Things to avoid
 
 - **Do not** add external dependencies (router, template engine, ORM, validation lib, session lib, assertion lib). If you think one is needed, propose it in ISSUES.md and wait for approval.
-- **Do not** wire `RunContext`'s shutdown-trigger context as `http.Server.BaseContext`. This is a correctness bug, not a style preference: doing so cancels every in-flight request's context the instant the shutdown signal fires, silently defeating graceful drain — the server still looks like it "shut down gracefully" from the outside, but every in-flight handler sees a canceled context and likely fails. `AppConfig.BaseContext` is the only knob for `BaseContext`, and it defaults to stdlib's own per-connection `context.Background()` if unset. The shutdown context passed to `server.Shutdown()` must be derived fresh (`context.WithTimeout(context.Background(), cfg.ShutdownTimeout)`), independent of both the trigger context (already canceled) and `BaseContext`.
-- **Do not** add form validation, session storage/issuance, or CSRF protection "while in there." These are explicitly deferred — see ISSUES.md's Deferred tier. (Static file serving, security headers, and the generic `Auth` primitive are explicitly **in** scope now, not deferred — don't treat them as excluded. `Auth` is a building block, not a session implementation — don't extend it into session storage without a fresh, explicit request.)
-- **Do not** add an opt-out for the default `Logging`+`Recover` wrapping, and **do not** reintroduce `Group` or any other prefix-scoped/nested route builder, without explicit user approval. Both were deliberate decisions (not oversights) reached after the initial implementation shipped — see ISSUES.md's "API revision" section for the reasoning.
-- **Do not** widen the "logger is implicit" exception to other dependencies. If a handler needs something else `App`-embedded (a DB pool, a config value), pass it explicitly — don't add it to `App` and read it implicitly the way the logger is, unless the user asks for that specific change.
-- **Do not** reintroduce a functional-options constructor (`type Option func(*App)`, `WithX` functions) without explicit user approval. It was tried, found harder to read on review than a plain struct, and deliberately replaced by `AppConfig` — see ISSUES.md's second "API revision" section.
+- **Do not** wire `RunContext`'s shutdown-trigger context as `http.Server.BaseContext`. This is a correctness bug, not a style preference: it cancels every in-flight request's context the instant the shutdown signal fires, silently defeating graceful drain — the server still looks like it "shut down gracefully" from the outside, but every in-flight handler sees a canceled context and likely fails. `AppConfig.BaseContext` is the only knob for `BaseContext`. The shutdown context passed to `server.Shutdown()` must be derived fresh from `context.Background()`, independent of both the trigger context and `BaseContext`.
+- **Do not** make `Middleware` `Ctx`-native. It breaks 404/405 coverage and stdlib interop — see Design Principle 2. This was considered and rejected during the v3 redesign, not overlooked.
+- **Do not** add `c.Set`/`c.Get` — see Conventions for why they have no consumer here.
+- **Do not** reintroduce `RenderJSON`/`RenderTemplate`/`RenderServerError`, or a free-function form of the `Ctx` response helpers.
+- **Do not** add form validation, session storage/issuance, or CSRF protection "while in there." These are explicitly deferred. (`Auth` is a building block, not a session implementation — don't extend it into session storage without a fresh, explicit request.)
+- **Do not** add an opt-out for the default `Logging`+`Recover` wrapping, and **do not** reintroduce `Group` or any other prefix-scoped/nested route builder, without explicit user approval. Both were deliberate decisions; `Group` in particular was offered again during the v3 redesign and explicitly declined.
+- **Do not** widen the "logger is implicit" exception to other dependencies. If a handler needs something else (a DB pool, a config value), pass it explicitly — capture it in a closure or hang handlers off your own struct.
+- **Do not** reintroduce a functional-options constructor (`type Option func(*App)`, `WithX` functions) without explicit user approval.
 - **Do not** add features "while you're in there." Scope your changes to the task.
 
 ## Where to look next
 
-- **ISSUES.md** — the backlog, tier-ordered (foundation → rendering → scaffolding/Docker → quality → framework capabilities → static/security/auth). All items through Tier 6 are checked off under "Recently completed"; the active backlog is empty and everything else is intentionally "Deferred," with reasons. Always check it before proposing new work; the user may have already decided the direction.
+- **ISSUES.md** — the backlog, tier-ordered (foundation → rendering → scaffolding/Docker → quality → framework capabilities → static/security/auth), followed by the API-revision sections including v3. All items are checked off under "Recently completed"; the active backlog is empty and everything else is intentionally "Deferred," with reasons. Always check it before proposing new work; the user may have already decided the direction.

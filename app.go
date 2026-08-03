@@ -2,25 +2,35 @@ package gwt
 
 import (
 	"context"
+	"html/template"
 	"log/slog"
 	"net"
 	"net/http"
+	"sync"
 )
 
 // App is a gwt application: a stdlib http.ServeMux plus global middleware,
-// configuration, a logger, and lifecycle hooks. App implements http.Handler,
-// so it can be passed directly to httptest.NewServer or nested inside
-// another handler.
+// configuration, a logger, a template set, and lifecycle hooks. App
+// implements http.Handler, so it can be passed directly to
+// httptest.NewServer or nested inside another handler.
 type App struct {
 	mux    *http.ServeMux
 	global []Middleware
 	cfg    Config
 	logger *slog.Logger
 
+	templates    *template.Template
+	errorHandler func(*Ctx, error)
+
 	onStart    []func(context.Context) error
 	onShutdown []func(context.Context) error
 
 	baseContextFn func(net.Listener) context.Context
+
+	// buildOnce guards built, so the global middleware chain is composed
+	// once rather than per request.
+	buildOnce sync.Once
+	built     http.Handler
 }
 
 // AppConfig configures an App at construction. Every field is optional —
@@ -36,6 +46,20 @@ type AppConfig struct {
 
 	// Logger overrides the default logger built from NewLogger(Config.Env).
 	Logger *slog.Logger
+
+	// Templates is the template set Ctx.HTML renders from. Setting it here
+	// is equivalent to calling LoadTemplates, for callers who already have
+	// a parsed set (e.g. one built with extra funcs via template.FuncMap).
+	Templates *template.Template
+
+	// ErrorHandler overrides how a non-nil error returned by a Handler is
+	// turned into a response. The default logs the error and writes a JSON
+	// body, using an *HTTPError's status and message when the chain has
+	// one and a bare 500 otherwise — see HTTPError.
+	//
+	// A custom handler must check Ctx.Written before writing, since a
+	// handler can respond in full and then still return an error.
+	ErrorHandler func(*Ctx, error)
 
 	// OnStart hooks run, in registration order, before the server starts
 	// serving. The first error aborts startup; hooks already run are not
@@ -76,6 +100,8 @@ func New(cfg ...AppConfig) *App {
 		mux:           http.NewServeMux(),
 		cfg:           resolveConfig(c.Config),
 		logger:        c.Logger,
+		templates:     c.Templates,
+		errorHandler:  c.ErrorHandler,
 		onStart:       c.OnStart,
 		onShutdown:    c.OnShutdown,
 		baseContextFn: c.BaseContext,
@@ -90,9 +116,11 @@ func New(cfg ...AppConfig) *App {
 // Use appends mw to the App's global middleware, stacked after the
 // always-on Logging and Recover pair New installs (i.e. closer to the
 // handler — a panic or early exit inside mw is still caught and logged).
-// Use is the only mechanism for adding further whole-app middleware; it
-// can be called any time after New, typically once, right after
-// construction.
+// Use is the only mechanism for adding further whole-app middleware.
+//
+// Call Use before serving starts, typically once, right after New: the
+// global chain is composed on the first call to Handler/ServeHTTP and
+// cached, so a Use after that point has no effect.
 func (a *App) Use(mw ...Middleware) {
 	a.global = append(a.global, mw...)
 }
@@ -109,12 +137,18 @@ func (a *App) Logger() *slog.Logger {
 // its global middleware (Logging and Recover, plus anything added via
 // Use), applied once. Use this to run the App under a custom http.Server
 // or supervisor instead of Run/RunContext.
+//
+// The chain is composed on the first call and cached, so later Use calls
+// are not reflected — see Use.
 func (a *App) Handler() http.Handler {
-	var h http.Handler = a.mux
-	if len(a.global) > 0 {
-		h = Chain(a.global...)(h)
-	}
-	return h
+	a.buildOnce.Do(func() {
+		var h http.Handler = a.mux
+		if len(a.global) > 0 {
+			h = Chain(a.global...)(h)
+		}
+		a.built = h
+	})
+	return a.built
 }
 
 // ServeHTTP implements http.Handler by delegating to Handler().

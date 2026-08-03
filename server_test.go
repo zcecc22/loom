@@ -78,15 +78,14 @@ func TestRunContextGracefulShutdownWaitsForInFlightRequest(t *testing.T) {
 			},
 		},
 	})
-	a.Get("/slow", func(w http.ResponseWriter, r *http.Request) {
+	a.GET("/slow", func(c *Ctx) error {
 		close(started)
 		<-proceed
 		// If RunContext's shutdown-trigger context had been wired as
 		// http.Server.BaseContext, this request's context would already
 		// be canceled by now (cancel() below has long since fired).
-		ctxErrCh <- r.Context().Err()
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("done"))
+		ctxErrCh <- c.Context().Err()
+		return c.String(http.StatusOK, "done")
 	})
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -166,7 +165,7 @@ func TestServerReadHeaderTimeoutDropsStalledConnection(t *testing.T) {
 		Config: Config{Addr: addr, ReadHeaderTimeout: 150 * time.Millisecond},
 		Logger: discardLogger(),
 	})
-	a.Get("/", func(w http.ResponseWriter, r *http.Request) {})
+	a.GET("/", func(c *Ctx) error { return nil })
 
 	ctx, cancel := context.WithCancel(context.Background())
 	runErrCh := make(chan error, 1)
@@ -234,7 +233,7 @@ func TestPanicInOnShutdownHookBecomesJoinedError(t *testing.T) {
 			},
 		},
 	})
-	a.Get("/", func(w http.ResponseWriter, r *http.Request) {})
+	a.GET("/", func(c *Ctx) error { return nil })
 
 	ctx, cancel := context.WithCancel(context.Background())
 	runErrCh := make(chan error, 1)
@@ -263,7 +262,7 @@ func TestRunContextRepeatedStartStop(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		addr := testAddr(t)
 		a := New(AppConfig{Config: Config{Addr: addr, ShutdownTimeout: time.Second}, Logger: discardLogger()})
-		a.Get("/", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
+		a.GET("/", func(c *Ctx) error { return c.NoContent(http.StatusOK) })
 
 		ctx, cancel := context.WithCancel(context.Background())
 		runErrCh := make(chan error, 1)

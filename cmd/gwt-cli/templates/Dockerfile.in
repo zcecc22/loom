@@ -10,7 +10,8 @@ FROM alpine:latest
 
 WORKDIR /app
 COPY --from=build /app/{{.Name}} .
-COPY --from=build /app/templates ./templates
+# templates/ is embedded in the binary (see main.go); static/ is read from
+# disk by ServeStatic, so it still has to be copied.
 COPY --from=build /app/static ./static
 
 ENTRYPOINT ["./{{.Name}}"]

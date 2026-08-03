@@ -21,7 +21,7 @@ type identityContextKey struct{}
 // it has no way to know which scheme authenticate implements.
 //
 // Auth is route-level middleware, passed as a trailing argument to
-// Get/Post/etc. — it is not global or automatic. Protecting only some
+// GET/POST/etc. — it is not global or automatic. Protecting only some
 // routes is just a matter of only passing it to those routes' calls; no
 // separate grouping mechanism is needed.
 func (a *App) Auth(authenticate func(r *http.Request) (identity string, ok bool)) Middleware {
@@ -41,6 +41,10 @@ func (a *App) Auth(authenticate func(r *http.Request) (identity string, ok bool)
 // Identity returns the identity string an Auth middleware stashed in r's
 // context, and whether one was set. ok is false if r never passed through
 // Auth (or if the request context was replaced without carrying it along).
+//
+// Handlers normally use Ctx.Identity instead; this function is for code
+// holding only an *http.Request, such as middleware or a handler mounted
+// with HandleHTTP.
 func Identity(r *http.Request) (identity string, ok bool) {
 	identity, ok = r.Context().Value(identityContextKey{}).(string)
 	return identity, ok

@@ -13,10 +13,14 @@ import (
 // Run starts the App's HTTP server and blocks until it shuts down.
 // Shutdown is triggered by SIGINT or SIGTERM (via signal.NotifyContext)
 // and performed gracefully, per RunContext.
-func (a *App) Run() error {
+//
+// addr is optional and overrides Config.Addr when given, so app.Run() uses
+// the configured address and app.Run(":8080") forces one. Passing more
+// than one address is meaningless; only addr[0] is used.
+func (a *App) Run(addr ...string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	return a.RunContext(ctx)
+	return a.RunContext(ctx, addr...)
 }
 
 // RunContext starts the App's HTTP server and blocks until it shuts down.
@@ -31,14 +35,22 @@ func (a *App) Run() error {
 // gracefully" from the outside, but in-flight handlers would see a
 // canceled context and likely fail). See CLAUDE.md's "Things to avoid".
 //
-// Run returns nil on a clean graceful shutdown, not http.ErrServerClosed.
-func (a *App) RunContext(ctx context.Context) error {
+// addr is optional and overrides Config.Addr when given, as in Run.
+//
+// RunContext returns nil on a clean graceful shutdown, not
+// http.ErrServerClosed.
+func (a *App) RunContext(ctx context.Context, addr ...string) error {
+	listenAddr := a.cfg.Addr
+	if len(addr) > 0 {
+		listenAddr = addr[0]
+	}
+
 	if err := runOnStart(context.Background(), a.onStart); err != nil {
 		return fmt.Errorf("gwt: startup hook failed: %w", err)
 	}
 
 	srv := &http.Server{
-		Addr:              a.cfg.Addr,
+		Addr:              listenAddr,
 		Handler:           a.Handler(),
 		ReadTimeout:       a.cfg.ReadTimeout,
 		ReadHeaderTimeout: a.cfg.ReadHeaderTimeout,
@@ -47,7 +59,7 @@ func (a *App) RunContext(ctx context.Context) error {
 		BaseContext:       a.baseContextFn,
 	}
 
-	a.logger.Info("gwt: starting server", "addr", a.cfg.Addr, "env", a.cfg.Env)
+	a.logger.Info("gwt: starting server", "addr", listenAddr, "env", a.cfg.Env)
 
 	serveErrCh := make(chan error, 1)
 	go func() {

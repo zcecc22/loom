@@ -1,6 +1,6 @@
-# ISSUES.md — gwt v2 backlog
+# ISSUES.md — gwt backlog
 
-Prioritized implementation backlog, tier-ordered. **All 22 Tier 1–5 items are implemented and passing** (see "Recently completed" below, resolved 2026-08-02), plus three same-day **API revisions**: items 23–26 (embedded logger, default middleware, `Group` removed), items 27–28 (functional options replaced by a plain `AppConfig` struct, `Chain`'s loop reworked for clarity), and items 29–31 (dead indirection in `render.go` removed, `callHook` reworked, `runOnShutdown` commented) — see those sections for the full reasoning — plus **Tier 6** (items 32–37, resolved 2026-08-03): static file serving, opt-in security middleware, generic pluggable authentication, and a scaffold update wiring all three into `gwt-cli new`'s generated app. The active backlog is currently empty — everything not yet built is intentionally out of scope, listed under "Deferred" with reasons.
+Prioritized implementation backlog, tier-ordered. **All 22 Tier 1–5 items are implemented and passing** (see "Recently completed" below, resolved 2026-08-02), plus three same-day **API revisions**: items 23–26 (embedded logger, default middleware, `Group` removed), items 27–28 (functional options replaced by a plain `AppConfig` struct, `Chain`'s loop reworked for clarity), and items 29–31 (dead indirection in `render.go` removed, `callHook` reworked, `runOnShutdown` commented) — see those sections for the full reasoning — plus **Tier 6** (items 32–37, resolved 2026-08-03): static file serving, opt-in security middleware, generic pluggable authentication, and a scaffold update wiring all three into `gwt-cli new`'s generated app. Finally, **v3** (items 38–45, resolved 2026-08-03): a gin-style `Ctx` API replacing `http.HandlerFunc` handlers and the `Render*` helpers — see the "API revision — v3" section. The active backlog is currently empty — everything not yet built is intentionally out of scope, listed under "Deferred" with reasons.
 
 Every issue has a **Done when** criterion so completion is unambiguous. Every issue respects the hard stdlib-only rule from `CLAUDE.md` — no external dependencies without explicit user approval. Issue IDs are stable across tiers so future references don't shift as items get resolved.
 
@@ -117,6 +117,60 @@ A follow-up request to scan the whole codebase for similar clarity issues (after
     Done when: `go test ./...` passes unchanged (nothing to break — comment-only).
 
 Two things were reviewed in this pass and explicitly **not** changed: `RunContext`'s shutdown/error-normalization block in `server.go` (dense, but every piece is load-bearing for the graceful-shutdown correctness guarantee — restructuring it would trade "hard to skim" for "harder to audit"), and `config.go`'s `resolveConfig`/`LoadConfig` near-duplication (structurally similar but merging them needs a new abstraction for little payoff). Don't revisit either without a concrete reason.
+
+---
+
+## API revision — v3, 2026-08-03 (gin-style `Ctx` API)
+
+The user tried the v2 API and asked for something "closer to gin gonic in style — intuitive, with sane defaults, maximum expressiveness for few lines." Four concrete verbosity drivers were measured in the v2 source before designing:
+
+1. Handlers were bare `http.HandlerFunc` with no error return, so every failure path was a manual `app.RenderServerError(w, r, err); return` — 5 of the 8 lines in `examples/basic`'s POST handler.
+2. Every render call took `(w, r, data, status)`, where `r` existed *only* to give the logger `r.Method`/`r.URL.Path`.
+3. No request-side sugar: query params, JSON decoding, and headers were all raw `net/http`.
+4. `RenderTemplate` took a path string and re-parsed from disk **on every request**.
+
+Four decisions were put to the user before implementation; all four answers are recorded here because three of them touch standing prohibitions:
+
+- **Handler signature:** `func(*Ctx) error` (echo/fiber-style) chosen over gin's literal `func(*Ctx)`, because the error return is what actually removes driver 1, and the stated goal was expressiveness rather than gin fidelity.
+- **`Group`:** offered, and **declined** — routing stays flat. Item 26's prohibition stands, now reaffirmed rather than merely inherited. All ergonomic gain therefore had to come from `Ctx` itself.
+- **Old `(w, r)` API:** clean break. The `Render*` helpers were deleted, not deprecated in place, matching item 23's precedent of removing the old form rather than keeping two ways to do one thing.
+- **Uncommitted `examples/basic` expansion:** committed first as a v2 snapshot (`6a7945e`), then rewritten, so the v2 tour stays recoverable in history.
+
+38. ✅ **`Ctx`, `Handler`, and `H` added (`ctx.go`).** `type Handler func(*Ctx) error`; `Ctx` carries exported `W`/`R` plus request helpers (`Param`, `Query`, `QueryDefault`, `FormValue`, `GetHeader`, `Bind`, `Context`, `Value`, `Identity`, `Logger`) and response helpers (`JSON`, `String`, `Stringf`, `HTML`, `NoContent`, `Redirect`, `SetHeader`, `Written`). All response helpers funnel through one unexported `write`, the single place `wroteHeader` is set. `H` is `map[string]any`.
+    `String`/`Stringf` are split rather than one variadic `String`: `go vet`'s printf analysis infers a formatting wrapper and then flags every non-constant argument (`c.String(200, "hello "+user)`) — the `f` suffix is what makes vet check the format instead. It caught a real bug in gwt's own tests (`"100% done"` parsed as a `% d` verb) before the split.
+    Done when: `ctx_test.go` covers every helper on both paths, including `TestCtxJSONMarshalErrorWritesNothingAndBecomes500` and `TestCtxHTMLExecuteErrorWritesNothingThen500` (buffering preserved — no partial bodies), `TestCtxBindMalformedBodyIs400NotA500`, and `TestCtxValueReadsForeignContextKeys`.
+
+39. ✅ **Error contract added (`errors.go`).** `HTTPError{Code, Message, Err}` with `Unwrap`; `Status(code, message...)` and `StatusErr(code, err)`. `App.handleError` uses `AppConfig.ErrorHandler` if set, else `defaultErrorHandler`: `errors.As` finds an `*HTTPError` anywhere in the chain and uses its status/message; anything else renders a generic 500 with the real cause logged and **never** sent. 4xx logs at Warn, 5xx at Error, so a bad URL can't fill the error log at Error level.
+    Includes the **committed-response guard**: because `return c.JSON(...)` is the documented idiom, a handler can respond in full and *then* return an error (a write failure inside `c.JSON`, a deferred cleanup). Writing a second status onto that response would corrupt it, so `handleError` checks `c.Written()` and only logs.
+    Done when: `TestPlainErrorBecomes500AndNeverLeaksTheCause` asserts the cause is in the log and absent from the body; `TestErrorAfterResponseCommittedDoesNotCorruptIt` asserts the committed 200 payload survives with nothing appended; `TestHTTPErrorFoundAnywhereInTheChain`, `TestClientErrorsLogAtWarnAndServerErrorsAtError`, and `TestCustomErrorHandlerReplacesTheDefault` cover the rest.
+
+40. ✅ **Middleware deliberately left as `func(http.Handler) http.Handler`.** The obvious move — making middleware `Ctx`-native for symmetry — was considered and **rejected on a correctness constraint**, not taste: CLAUDE.md documents that global middleware covers the mux's own 404/405 responses, and an unmatched request never reaches a route, so it has no `Ctx` and no wildcards. A `Ctx`-native global chain would have to synthesize a meaningless `Ctx` around the bare mux. Gin escapes this because its router owns `NoRoute`; stdlib `ServeMux` gives no such hook. Keeping the stdlib shape also preserves drop-in use of any third-party `http.Handler` middleware. The `Ctx` is therefore built in the route adapter inside `Handle` — the only place it is constructed.
+    Done when: `TestHandlerCoversMuxNotFound` and `TestEndToEndDefaultAndUseMiddlewareOrder` pass unchanged in substance, proving 404 coverage and the fixed order survived the redesign.
+
+41. ✅ **Routing rewritten to uppercase verbs (`router.go`).** `GET`/`POST`/`PUT`/`PATCH`/`DELETE` take a `Handler`; `Handle(method, pattern, h Handler, mw...)` keeps the generic form; new `HandleHTTP(method, pattern, h http.Handler, mw...)` is the raw `net/http` escape hatch that `ServeStatic` and `Handle` both build on. **No `HEAD` or `OPTIONS` method was added** — stdlib `ServeMux` already matches HEAD against a `GET` pattern, and `Handle`'s documented reason for existing is verbatim "for verbs without a dedicated method (e.g. `OPTIONS`)", so adding one would contradict the reason `Handle` survived `Group`'s deletion.
+    Done when: `TestVerbHelpersRouteToCorrectHandlerAndPathValue`, `TestHandleAnyVerbWhenMethodEmpty`, and `TestHandleHTTPMountsPlainNetHTTPHandler` pass.
+
+42. ✅ **Template set replaces per-request parsing (`render.go`).** `App.LoadTemplates(fsys fs.FS, patterns ...string) error` parses once (default pattern `"*.tmpl"`), taking an `fs.FS` so `os.DirFS` and `//go:embed` both work; `AppConfig.Templates` accepts a pre-built set. `Ctx.HTML(status, name, data)` executes by base filename. `RenderJSON`/`RenderTemplate`/`RenderServerError` were deleted.
+    An unexported `serverError(w, r, err)` was **added back** for `Recover`, which is http-level and has no `Ctx`. CLAUDE.md warned against an unexported core layer here; that warning came from item 29, where the layer was proven **dead** — nothing called it. This one has exactly one real caller. The distinction that matters is "has a live caller," not "is unexported."
+    Done when: `TestLoadTemplatesParsesMatchingFiles`, `TestLoadTemplatesExplicitPatterns`, `TestLoadTemplatesParseErrorIsReturned`, `TestLoadTemplatesNoMatchIsError`, `TestAppConfigTemplatesUsedWithoutLoadTemplates`, `TestCtxHTMLWithNoTemplatesLoadedIsCleanError` (no nil-deref on an unloaded set), and `TestServerErrorLogsAndWrites500WithoutLeakingTheCause` pass.
+
+43. ✅ **`statusWriter` now forwards the optional `ResponseWriter` interfaces (`middleware.go`).** It embedded `http.ResponseWriter` and overrode only `WriteHeader`/`Write`, forwarding neither `http.Flusher`, `http.Hijacker`, nor `io.ReaderFrom`. Because `Logging` is always on and unremovable, anything it hid was unreachable in **every** gwt app — SSE, streaming, and WebSocket upgrades were all silently broken. Added `Flush`, `Hijack`, `ReadFrom`, and `Unwrap() http.ResponseWriter` (for `http.ResponseController`). `Hijack` over a non-hijackable writer returns `http.ErrNotSupported`, the same sentinel `ResponseController` uses, so a caller that type-asserts and then calls gets a correct answer rather than a panic.
+    This is a **bug fix, not a feature**, and predates v3; it was fixed here because the redesign rewrites this exact path and `Ctx` adds another wrapper on top.
+    Done when: `TestLoggingForwardsOptionalInterfaces`, `TestLoggingFlushReachesUnderlyingWriter`, and `TestLoggingHijackDelegatesAndReportsUnsupported` pass.
+
+44. ✅ **Built handler cached; `Run` takes an optional address.** `Handler()` composed the global chain on **every** `ServeHTTP` call; it now builds once under a `sync.Once`. Known consequence, documented on `Use`: a `Use` call after serving has begun is silently ignored (previously it would have taken effect on the next request). `Run(addr ...string)` and `RunContext(ctx, addr ...string)` accept an optional address overriding `Config.Addr`, so `app.Run(":8080")` works gin-style.
+    Done when: `TestUseWrapsWholeHandlerOnce` passes, and the server suite (`TestRunContextGracefulShutdownWaitsForInFlightRequest`, `TestRunContextRepeatedStartStop`) stays clean under `-race`.
+
+45. ✅ **Example, scaffold, and docs rewritten.** `examples/basic` now embeds its templates via `//go:embed` and tours the `Ctx` helpers, the three error forms, and `HandleHTTP`; its `Example` smoke test grew to 14 assertions including exact error-body shapes. `cmd/gwt-cli/templates/main.go.in` was converted to the v3 API and now embeds `templates/`, which let the generated `Dockerfile` **stop copying `templates/`** into the runtime image (`static/` is still copied — `ServeStatic` reads it from disk). `doc.go` and `CLAUDE.md` rewritten.
+    Done when: `TestGeneratedProjectBuildsAndVets` (hermetic build+vet of the generated project) passes, and the example was run as a real process with every route curled in both startup modes (normal and `CUSTOM_SERVER`).
+
+**Explicitly declined in this pass — do not add without a fresh, explicit request:**
+
+- **`Group` / any prefix-scoped route builder.** Offered during the design questions and declined; routing stays flat.
+- **`Ctx`-native middleware.** See item 40 — it breaks 404/405 coverage and stdlib interop.
+- **Gin's `c.Set`/`c.Get`.** The `Ctx` is constructed in the innermost frame, after all middleware, so nothing downstream of the handler could read what `c.Set` wrote — it would be a local variable with extra steps. And a gwt-namespaced key can't read what foreign middleware wrote under its own key type, so the interop argument fails too. Gin's version works only because gin middleware is `func(*gin.Context)` in the same chain, which item 40 deliberately rejected. `Ctx.Value(key any) any` is the read side that *does* have a consumer. Adding `Set`/`Get` would repeat item 29 exactly: an abstraction justified by a premise that was false from the start.
+- **`:id` path syntax.** Patterns stay stdlib `{id}`. A translation layer would be the "magic path transformation" this repo rejects, and it would break `{path...}` wildcards. `Ctx.Param` reads them.
+- **A `Ctx.SetStatus` method.** It would be indistinguishable from `NoContent(status)`.
 
 ---
 
