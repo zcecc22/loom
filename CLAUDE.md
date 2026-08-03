@@ -51,9 +51,12 @@ Scope, relative to v1:
 │       ├── scaffold.go        Embedded-FS manifest + template engine
 │       └── templates/         //go:embed all:templates — app source + Docker deploy files
 ├── go.mod                 Go 1.24.4, zero external deps
+├── README.md              User-facing docs — the public API, with worked examples
 ├── CLAUDE.md              This file
 └── ISSUES.md              Prioritized backlog — read before proposing new work
 ```
+
+**Documentation is four files, and an API change touches all four:** `README.md` (user-facing), `doc.go` (godoc), `CLAUDE.md` (this file — design rationale and internal surface), and `ISSUES.md` (history and declined alternatives). `README.md` is the one most easily forgotten because nothing compiles it — but its snippets are the first thing a user copies, so verify them against the real library rather than by eye.
 
 **Note on the package/import-path mismatch:** the module path ends in `go-web-toolkit.git`, but the package clause is `package gwt` (brand continuity with v1). This is legal Go and `goimports`/`go doc` resolve it correctly, but don't be surprised by it — a naive guess from the import path alone would land on `go-web-toolkit` or worse.
 
