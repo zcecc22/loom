@@ -142,7 +142,10 @@ func (a *App) Logger() *slog.Logger {
 // are not reflected — see Use.
 func (a *App) Handler() http.Handler {
 	a.buildOnce.Do(func() {
-		var h http.Handler = a.mux
+		// muxErrorsAsJSON sits innermost, directly around the mux, so the
+		// global middleware still wraps — and still logs and recovers —
+		// the mux's own 404/405 responses.
+		var h http.Handler = a.muxErrorsAsJSON(a.mux)
 		if len(a.global) > 0 {
 			h = Chain(a.global...)(h)
 		}

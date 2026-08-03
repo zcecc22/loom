@@ -50,6 +50,85 @@ func (a *App) Handle(method, pattern string, h Handler, mw ...Middleware) {
 	}), mw...)
 }
 
+// muxErrorsAsJSON wraps the mux so the error responses it generates itself
+// — the plain-text "404 page not found" and "Method Not Allowed" — come out
+// in gwt's JSON error shape like everything else. Handler installs it as
+// the innermost global wrapper, so Logging still reports the real status
+// and Recover still covers it.
+//
+// It works by elimination rather than by asking the mux anything: every
+// registered route steps out of the notFoundWriter before running (see
+// HandleHTTP), so whatever is still writing through it is the mux's own
+// response. That keeps the cost to one small wrapper per request.
+//
+// The tempting alternative — asking ServeMux.Handler which pattern matches
+// — costs a second route lookup on every request, measurably as expensive
+// as the entire first one, to benefit only the responses that 404.
+func (a *App) muxErrorsAsJSON(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		next.ServeHTTP(&notFoundWriter{ResponseWriter: w, app: a, req: r}, r)
+	})
+}
+
+// notFoundWriter replaces the body of any error response written through it
+// with gwt's JSON error shape. Only the mux's own responses reach it —
+// registered routes unwrap it first — so it never second-guesses a
+// handler's output.
+//
+// Statuses below 400 pass through untouched, which is what keeps stdlib's
+// trailing-slash and path-cleaning redirects (301) working.
+//
+// It deliberately forwards only Unwrap, not Flusher/Hijacker/ReaderFrom
+// like statusWriter does: the only things that ever write through it are
+// stdlib's fixed one-line not-found and redirect handlers, and nothing
+// streams or hijacks from there.
+type notFoundWriter struct {
+	http.ResponseWriter
+	app *App
+	req *http.Request
+
+	wroteHeader bool
+	rewriting   bool
+}
+
+// Unwrap exposes the underlying writer to http.ResponseController and to
+// HandleHTTP's step-out.
+func (n *notFoundWriter) Unwrap() http.ResponseWriter {
+	return n.ResponseWriter
+}
+
+func (n *notFoundWriter) WriteHeader(status int) {
+	if n.wroteHeader {
+		return
+	}
+	n.wroteHeader = true
+
+	if status < 400 {
+		n.ResponseWriter.WriteHeader(status)
+		return
+	}
+
+	// No registered route ran, or it would have stepped out of this
+	// writer — so this is the mux answering for itself. Write our own body
+	// and swallow the plain-text one that follows.
+	n.rewriting = true
+	if err := writeJSONError(n.ResponseWriter, status, statusMessage(status)); err != nil {
+		n.app.logger.Error("gwt: write error response failed", "err", err, "method", n.req.Method, "path", n.req.URL.Path)
+	}
+}
+
+func (n *notFoundWriter) Write(b []byte) (int, error) {
+	if !n.wroteHeader {
+		n.WriteHeader(http.StatusOK)
+	}
+	if n.rewriting {
+		// Report the write as successful so stdlib's handler doesn't treat
+		// the suppression as an I/O failure.
+		return len(b), nil
+	}
+	return n.ResponseWriter.Write(b)
+}
+
 // HandleHTTP registers a plain http.Handler, bypassing Ctx entirely. It is
 // the escape hatch for mounting handlers written against net/http directly
 // — a third-party handler, a reverse proxy, an http.FileServer. Pattern,
@@ -62,5 +141,17 @@ func (a *App) HandleHTTP(method, pattern string, h http.Handler, mw ...Middlewar
 	if method != "" {
 		routed = method + " " + pattern
 	}
-	a.mux.Handle(routed, h)
+
+	a.mux.Handle(routed, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// A registered route owns its response, whatever status it chooses,
+		// so step out of the not-found interceptor before running. This is
+		// what makes muxErrorsAsJSON's by-elimination rule true — anything
+		// still writing through that wrapper is the mux itself — and it
+		// keeps the route's writer the fully-featured statusWriter, so
+		// streaming and hijacking are unaffected.
+		if nf, ok := w.(*notFoundWriter); ok {
+			w = nf.ResponseWriter
+		}
+		h.ServeHTTP(w, r)
+	}))
 }

@@ -162,6 +162,27 @@ return fmt.Errorf("loading: %w", gwt.Status(404, "gone")) // 404 — errors.As w
 
 Client errors (4xx) log at `WARN`, server errors (5xx) at `ERROR`, so a stream of bad URLs can't flood your error log.
 
+### Error shape
+
+**Every error gwt generates is JSON: `{"error":"<message>"}` with `Content-Type: application/json`.** That holds no matter which layer produced it, so a client can parse one shape without special-casing:
+
+| Situation | Response |
+|---|---|
+| Handler returned an error | `404 {"error":"no such item"}` |
+| Handler panicked | `500 {"error":"Internal Server Error"}` |
+| `Auth` rejected the request | `401 {"error":"Unauthorized"}` |
+| No route matched the path | `404 {"error":"Not Found"}` |
+| Route exists, wrong method | `405 {"error":"Method Not Allowed"}` + `Allow` header |
+
+The 405's `Allow` header is preserved exactly as stdlib computes it — rewriting the body doesn't cost you the machine-readable part.
+
+**Two deliberate exceptions**, both cases where you asked for a raw handler and should get its output verbatim:
+
+- **`HandleHTTP` handlers** own their responses entirely. A mounted third-party handler's error format is its own business.
+- **`ServeStatic`** is built on `HandleHTTP`, so a missing asset still returns `http.FileServer`'s plain-text 404. That's deliberate beyond consistency: intercepting it would mean wrapping the writer that `http.FileServer` uses for its `sendfile` fast path, making every file served slower to change the format of responses no browser reads.
+
+If you want a different shape, `AppConfig.ErrorHandler` covers handler errors, and ordinary middleware covers the rest.
+
 Override the whole behavior with `AppConfig.ErrorHandler`:
 
 ```go
@@ -382,7 +403,7 @@ The package-level `gwt.Identity(r)` does the same thing for code that holds only
 
 `gwt` doesn't provide a built-in Basic/Bearer/session implementation — `authenticate` is where you plug in whichever scheme you need. This also means `gwt` doesn't issue, sign, or store sessions, and has no CSRF token mechanism; `Auth` is a building block for that, not a session framework.
 
-> `Auth`'s 401 is written with `http.Error`, so it's plain text — unlike handler errors, which render as JSON. The same goes for the mux's own 404s. If your clients require JSON for every error, handle it in your own middleware.
+`Auth`'s 401 uses the same JSON error shape as every other gwt error — see [Error shape](#error-shape).
 
 ### Server lifecycle
 

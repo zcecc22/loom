@@ -1,6 +1,7 @@
 package gwt
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -64,6 +65,23 @@ func statusMessage(code int) string {
 		return text
 	}
 	return "Error"
+}
+
+// writeJSONError writes gwt's canonical error body — {"error":"<message>"} —
+// with the given status. It is the shared writer for the error paths that
+// have no Ctx to render through: Recover's 500, Auth's 401, and the mux's
+// own 404/405. defaultErrorHandler produces the identical shape via
+// Ctx.JSON, and TestEveryErrorPathRendersTheSameShape holds the two
+// together.
+func writeJSONError(w http.ResponseWriter, status int, message string) error {
+	body, err := json.Marshal(H{"error": message})
+	if err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+	_, werr := w.Write(body)
+	return werr
 }
 
 // handleError renders a non-nil error returned by a Handler, using

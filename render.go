@@ -58,9 +58,7 @@ func (a *App) serverError(w http.ResponseWriter, r *http.Request, err error) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(http.StatusInternalServerError)
-	if _, werr := w.Write([]byte(`{"error":"Internal Server Error"}`)); werr != nil {
+	if werr := writeJSONError(w, http.StatusInternalServerError, statusMessage(http.StatusInternalServerError)); werr != nil {
 		a.logger.Error("gwt: write error response failed", "err", werr, "method", r.Method, "path", r.URL.Path)
 	}
 }

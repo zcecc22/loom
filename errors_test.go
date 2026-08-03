@@ -230,3 +230,153 @@ func TestPanicAfterResponseCommittedDoesNotCorruptIt(t *testing.T) {
 		t.Fatalf("the panic was not logged: %s", buf.String())
 	}
 }
+
+// TestEveryErrorPathRendersTheSameShape is the guarantee that motivated
+// writeJSONError: a client should be able to parse {"error": ...} from any
+// error gwt itself produces, without special-casing which layer generated
+// it. The four paths reach the wire through different code — Ctx.JSON, the
+// unexported writeJSONError from three separate callers — so only an
+// end-to-end assertion holds them together.
+func TestEveryErrorPathRendersTheSameShape(t *testing.T) {
+	a := New(AppConfig{Logger: discardLogger()})
+	a.GET("/handler-error", func(c *Ctx) error {
+		return Status(http.StatusNotFound, "no such item")
+	})
+	a.GET("/panic", func(c *Ctx) error {
+		panic("boom")
+	})
+	a.GET("/guarded", func(c *Ctx) error {
+		return nil
+	}, a.Auth(func(r *http.Request) (string, bool) { return "", false }))
+
+	cases := []struct {
+		name       string
+		method     string
+		path       string
+		wantStatus int
+		wantBody   string
+	}{
+		{"handler returned an error", http.MethodGet, "/handler-error", http.StatusNotFound, `{"error":"no such item"}`},
+		{"handler panicked", http.MethodGet, "/panic", http.StatusInternalServerError, `{"error":"Internal Server Error"}`},
+		{"Auth rejected", http.MethodGet, "/guarded", http.StatusUnauthorized, `{"error":"Unauthorized"}`},
+		{"mux found no route", http.MethodGet, "/nothing-here", http.StatusNotFound, `{"error":"Not Found"}`},
+		{"mux found no method", http.MethodPost, "/handler-error", http.StatusMethodNotAllowed, `{"error":"Method Not Allowed"}`},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			a.ServeHTTP(rec, httptest.NewRequest(tc.method, tc.path, nil))
+
+			if rec.Code != tc.wantStatus {
+				t.Fatalf("status = %d, want %d", rec.Code, tc.wantStatus)
+			}
+			if got := strings.TrimSpace(rec.Body.String()); got != tc.wantBody {
+				t.Fatalf("body = %s, want %s", got, tc.wantBody)
+			}
+			if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+				t.Fatalf("Content-Type = %q, want application/json — the whole point is one parseable shape", ct)
+			}
+		})
+	}
+}
+
+func TestMethodNotAllowedKeepsStdlibAllowHeader(t *testing.T) {
+	// Rewriting the body must not cost the Allow header stdlib computed;
+	// it is the only machine-readable part of a 405.
+	a := New(AppConfig{Logger: discardLogger()})
+	a.GET("/items/{id}", func(c *Ctx) error { return c.NoContent(http.StatusOK) })
+	a.DELETE("/items/{id}", func(c *Ctx) error { return c.NoContent(http.StatusNoContent) })
+
+	rec := httptest.NewRecorder()
+	a.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/items/42", nil))
+
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("status = %d, want 405", rec.Code)
+	}
+	allow := rec.Header().Get("Allow")
+	for _, want := range []string{"GET", "DELETE"} {
+		if !strings.Contains(allow, want) {
+			t.Fatalf("Allow = %q, want it to list %s", allow, want)
+		}
+	}
+}
+
+// TestRedirectsAreNotRewrittenAsNotFound guards the sharp edge of the
+// pattern-lookup approach: stdlib answers some requests with a 301 rather
+// than a match, and mistaking those for "no route" would silently turn
+// every trailing-slash redirect into a 404.
+func TestRedirectsAreNotRewrittenAsNotFound(t *testing.T) {
+	a := New(AppConfig{Logger: discardLogger()})
+	a.GET("/dir/", func(c *Ctx) error { return c.String(http.StatusOK, "dir") })
+	a.GET("/items/{id}", func(c *Ctx) error { return c.String(http.StatusOK, "item") })
+
+	cases := []struct {
+		name       string
+		path       string
+		wantStatus int
+		wantLoc    string
+	}{
+		{"trailing-slash redirect", "/dir", http.StatusMovedPermanently, "/dir/"},
+		{"path cleaning redirect", "//dir//x", http.StatusMovedPermanently, "/dir/x"},
+		{"ordinary subtree match", "/dir/", http.StatusOK, ""},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			a.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, tc.path, nil))
+
+			if rec.Code != tc.wantStatus {
+				t.Fatalf("status = %d, want %d (body %q)", rec.Code, tc.wantStatus, rec.Body.String())
+			}
+			if got := rec.Header().Get("Location"); got != tc.wantLoc {
+				t.Fatalf("Location = %q, want %q", got, tc.wantLoc)
+			}
+		})
+	}
+}
+
+// TestPathValuesSurviveTheNotFoundWrapper is the regression guard for the
+// reason muxErrorsAsJSON only *asks* the mux which pattern matches instead
+// of serving the handler it returns: that shortcut does not populate path
+// wildcards, and Ctx.Param would silently come back empty.
+func TestPathValuesSurviveTheNotFoundWrapper(t *testing.T) {
+	a := New(AppConfig{Logger: discardLogger()})
+	var got string
+	a.GET("/items/{id}/sub/{rest...}", func(c *Ctx) error {
+		got = c.Param("id") + "|" + c.Param("rest")
+		return c.NoContent(http.StatusOK)
+	})
+
+	rec := httptest.NewRecorder()
+	a.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/items/42/sub/a/b", nil))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if got != "42|a/b" {
+		t.Fatalf("Param values = %q, want %q", got, "42|a/b")
+	}
+}
+
+// TestHandleHTTPErrorsAreLeftAlone documents the deliberate limit: a raw
+// net/http handler mounted with HandleHTTP owns its output, JSON or not.
+// ServeStatic is built on HandleHTTP, so a missing asset still 404s the way
+// http.FileServer does.
+func TestHandleHTTPErrorsAreLeftAlone(t *testing.T) {
+	a := New(AppConfig{Logger: discardLogger()})
+	a.HandleHTTP(http.MethodGet, "/raw", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "raw plain text", http.StatusNotFound)
+	}))
+
+	rec := httptest.NewRecorder()
+	a.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/raw", nil))
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", rec.Code)
+	}
+	if got := strings.TrimSpace(rec.Body.String()); got != "raw plain text" {
+		t.Fatalf("body = %q, want the raw handler's own output untouched", got)
+	}
+}

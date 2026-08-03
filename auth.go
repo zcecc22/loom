@@ -29,7 +29,12 @@ func (a *App) Auth(authenticate func(r *http.Request) (identity string, ok bool)
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			identity, ok := authenticate(r)
 			if !ok {
-				http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+				// Rendered as JSON, matching every other gwt-generated
+				// error, so a client doesn't have to special-case the
+				// rejection shape.
+				if werr := writeJSONError(w, http.StatusUnauthorized, statusMessage(http.StatusUnauthorized)); werr != nil {
+					a.logger.Error("gwt: write error response failed", "err", werr, "method", r.Method, "path", r.URL.Path)
+				}
 				return
 			}
 			ctx := context.WithValue(r.Context(), identityContextKey{}, identity)

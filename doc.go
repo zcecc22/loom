@@ -36,6 +36,12 @@
 //		return c.JSON(200, item)
 //	})
 //
+// Every error gwt itself generates renders the same way — a JSON body of
+// the form {"error":"<message>"} — whether it came from a handler, a
+// panic, an Auth rejection, or the router finding no route. The two
+// exceptions are handlers mounted with HandleHTTP and ServeStatic, which
+// own their own responses; see HandleHTTP.
+//
 // # Middleware
 //
 // Middleware is plain net/http — func(http.Handler) http.Handler — so
