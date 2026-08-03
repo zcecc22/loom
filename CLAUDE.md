@@ -51,7 +51,7 @@ Scope, relative to v1:
 │       ├── scaffold.go        Embedded-FS manifest + template engine
 │       └── templates/         //go:embed all:templates — app source + Docker deploy files
 ├── go.mod                 Go 1.24.4, zero external deps
-├── README.md              User-facing docs — the public API, with worked examples
+├── README.md              User-facing docs — a step-by-step tutorial plus the full public API, with worked examples
 ├── CLAUDE.md              This file
 └── ISSUES.md              Prioritized backlog — read before proposing new work
 ```

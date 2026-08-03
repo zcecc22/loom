@@ -1,5 +1,9 @@
 # gwt — Go Web Toolkit
 
+[![Go Reference](https://pkg.go.dev/badge/github.com/zcecc22/go-web-toolkit.svg)](https://pkg.go.dev/github.com/zcecc22/go-web-toolkit)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Go Version](https://img.shields.io/badge/go-1.24.4%2B-00ADD8?logo=go&logoColor=white)](go.mod)
+
 `gwt` is a zero-dependency, stdlib-only toolkit that eliminates boilerplate around routing, middleware, server lifecycle, configuration, and JSON/HTML rendering for `net/http` applications. It is deliberately **not a framework**: there's no router DSL beyond what stdlib's `http.ServeMux` already gives you, no ORM, no dependency-injection container. It's a thin layer that makes writing a small, correct, deployable Go web service fast, without hiding `net/http` from you.
 
 ```go
@@ -22,7 +26,22 @@ func main() {
 }
 ```
 
-That's a complete, working service: structured request logging, panic recovery, and graceful shutdown are all active with zero further setup.
+That's a complete, working service: structured request logging, panic recovery, and graceful shutdown are all active with zero further setup. New to gwt? Jump to the [Tutorial](#tutorial-building-an-items-api) below, or browse [examples/basic](examples/basic) for a single-file tour of every construct in the API.
+
+## Contents
+
+- [Install](#install)
+- [Why gwt](#why-gwt)
+- [Comparison to alternatives](#comparison-to-alternatives)
+- [Feature overview](#feature-overview)
+- [Tutorial: building an items API](#tutorial-building-an-items-api)
+- [API reference](#api-reference)
+- [Idiomatic usage](#idiomatic-usage)
+- [Scaffolding a new project](#scaffolding-a-new-project)
+- [Contributing](#contributing)
+- [Testing](#testing)
+- [License](#license)
+- [Project docs](#project-docs)
 
 ## Install
 
@@ -31,6 +50,8 @@ go get github.com/zcecc22/go-web-toolkit
 ```
 
 The import path is the module path above; the package name is `gwt` (they don't match — that's intentional, see [CLAUDE.md](CLAUDE.md)).
+
+Requires **Go 1.24.4 or newer** — that's the floor `go.mod` declares. (The route-pattern syntax used throughout this README, `GET /items/{id}`, depends on `http.ServeMux` enhancements that landed in Go 1.22; 1.24.4 is simply the actual minimum this module supports.)
 
 ## Why gwt
 
@@ -42,6 +63,18 @@ The import path is the module path above; the package name is `gwt` (they don't 
 - **Graceful shutdown that's actually correct.** In-flight requests finish before the process exits; the shutdown trigger is never conflated with request context cancellation (a common bug this toolkit specifically avoids — see [CLAUDE.md](CLAUDE.md)).
 - **Deploy-ready out of the box.** `gwt-cli new` scaffolds a runnable app plus a complete Docker deployment setup.
 - **Zero dependencies.** Everything is `net/http`, `html/template`, `encoding/json`, `log/slog`. `go.mod` has no `require` lines.
+
+## Comparison to alternatives
+
+| | gwt | gin / echo | chi | `net/http` alone |
+|---|---|---|---|---|
+| Dependencies | zero | several (own router + helpers) | zero | zero |
+| Routing | stdlib `http.ServeMux` | custom router | own lightweight router | stdlib `http.ServeMux` |
+| Middleware shape | plain `net/http` | framework-specific | plain `net/http` | plain `net/http` |
+| Request/response helpers | `Ctx` (JSON, HTML, errors, binding) | yes, framework-specific | none built in | none |
+| Server lifecycle, config, scaffolding | yes | bring your own | bring your own | bring your own |
+
+Where `gwt` sits: closer to `chi` than to `gin`/`echo` — no reinvented routing, no framework-specific middleware type — but with the request/response conveniences, config loading, graceful shutdown, and a project scaffolder that `chi` and bare `net/http` leave to you. If you want a router DSL with groups, wildcards beyond stdlib, or a large built-in middleware ecosystem, `gin` or `echo` are the better fit; `gwt` deliberately doesn't compete on that axis (see "Why gwt" above and [CLAUDE.md](CLAUDE.md)'s design principles for what was left out on purpose).
 
 ## Feature overview
 
@@ -60,37 +93,177 @@ The import path is the module path above; the package name is `gwt` (they don't 
 | Config | Env-based `LoadServerConfig`, fail-fast on malformed values |
 | Scaffolding | `gwt-cli new` — runnable app + Dockerfile/compose/deploy script |
 
-## Quick start
+## Tutorial: building an items API
+
+This walks through building a small `/items` service from nothing, introducing one gwt concept at a time. Each step is a complete, runnable program — start a new `main.go` and grow it as you go, or treat it as a guided read of [examples/basic](examples/basic).
+
+### 1. A server that does nothing yet
 
 ```go
-app := gwt.New()
+package main
+
+import gwt "github.com/zcecc22/go-web-toolkit"
+
+func main() {
+	app := gwt.New()
+	app.Run()
+}
+```
+
+Run it (`go run .`) and it's already a real server on `:8000` — request logging and panic recovery are on by default, there's just nothing registered yet. `Ctrl-C` shuts it down gracefully: in-flight requests (there are none yet) get a chance to finish first.
+
+### 2. Add a route with a path parameter
+
+```go
+type Item struct {
+	Name string `json:"name"`
+}
+
+var items = map[string]Item{"1": {Name: "widget"}}
 
 app.GET("/items/{id}", func(c *gwt.Ctx) error {
-	item, err := store.Find(c.Param("id"))
-	if err != nil {
+	item, ok := items[c.Param("id")]
+	if !ok {
 		return gwt.Status(404, "no such item")
 	}
 	return c.JSON(200, item)
 })
+```
 
-app.POST("/items", func(c *gwt.Ctx) error {
+`"/items/{id}"` is plain `http.ServeMux` pattern syntax; `c.Param("id")` reads the matched wildcard. Returning `gwt.Status(404, "no such item")` is the whole error path — no manual `w.WriteHeader` or `json.NewEncoder` needed:
+
+```
+curl localhost:8000/items/1    # {"name":"widget"}
+curl localhost:8000/items/999  # {"error":"no such item"}
+```
+
+### 3. Accept writes
+
+```go
+app.POST("/items/{id}", func(c *gwt.Ctx) error {
 	var in Item
 	if err := c.Bind(&in); err != nil {
-		return err // malformed JSON -> 400
+		return err // malformed JSON -> 400, automatically
 	}
+	items[c.Param("id")] = in
 	return c.JSON(201, in)
 })
-
-app.Run()
 ```
 
-Run it, then:
+`c.Bind` decodes the JSON body; a malformed body becomes a 400 without any extra code on your part — just return the error `Bind` gives you.
 
 ```
-curl localhost:8000/items/42        # {"id":"42"}
-curl localhost:8000/items/999       # {"error":"no such item"}
-curl -XPOST -d '{"name":"widget"}' localhost:8000/items
+curl -XPOST -d '{"name":"gadget"}' localhost:8000/items/2
 ```
+
+### 4. Render an HTML page alongside the JSON API
+
+Add `templates/index.tmpl`:
+
+```html
+<!doctype html>
+<title>Items</title>
+<p>{{.Count}} item(s) in the store.</p>
+```
+
+Embed and load it, then add a route that renders it:
+
+```go
+import "embed"
+
+//go:embed templates
+var templatesFS embed.FS
+
+// in main(), after gwt.New():
+if err := app.LoadTemplates(templatesFS, "templates/*.tmpl"); err != nil {
+	log.Fatal(err)
+}
+
+app.GET("/", func(c *gwt.Ctx) error {
+	return c.HTML(200, "index.tmpl", gwt.H{"Count": len(items)})
+})
+```
+
+Templates are parsed once at startup, not per request, and `c.HTML` auto-escapes output via `html/template` — safe against XSS by construction.
+
+### 5. Load configuration and turn on security headers
+
+```go
+cfg, err := gwt.LoadServerConfig() // reads ADDR, ENV, and timeout env vars
+if err != nil {
+	log.Fatal(err)
+}
+
+app := gwt.New(gwt.AppConfig{Server: cfg})
+app.Use(app.SecureHeaders()) // X-Content-Type-Options, X-Frame-Options, Referrer-Policy
+```
+
+`LoadServerConfig` fails fast on a malformed `*_TIMEOUT` env var rather than silently falling back, and `SecureHeaders` is opt-in — wire it with `Use` once, right after `New`, and it applies to every route.
+
+### Putting it together
+
+The five steps above compose into one program:
+
+```go
+package main
+
+import (
+	"embed"
+	"log"
+
+	gwt "github.com/zcecc22/go-web-toolkit"
+)
+
+type Item struct {
+	Name string `json:"name"`
+}
+
+var items = map[string]Item{"1": {Name: "widget"}}
+
+//go:embed templates
+var templatesFS embed.FS
+
+func main() {
+	cfg, err := gwt.LoadServerConfig()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	app := gwt.New(gwt.AppConfig{Server: cfg})
+
+	if err := app.LoadTemplates(templatesFS, "templates/*.tmpl"); err != nil {
+		log.Fatal(err)
+	}
+	app.Use(app.SecureHeaders())
+
+	app.GET("/items/{id}", func(c *gwt.Ctx) error {
+		item, ok := items[c.Param("id")]
+		if !ok {
+			return gwt.Status(404, "no such item")
+		}
+		return c.JSON(200, item)
+	})
+
+	app.POST("/items/{id}", func(c *gwt.Ctx) error {
+		var in Item
+		if err := c.Bind(&in); err != nil {
+			return err
+		}
+		items[c.Param("id")] = in
+		return c.JSON(201, in)
+	})
+
+	app.GET("/", func(c *gwt.Ctx) error {
+		return c.HTML(200, "index.tmpl", gwt.H{"Count": len(items)})
+	})
+
+	if err := app.Run(); err != nil {
+		app.Logger().Error("server exited", "err", err)
+	}
+}
+```
+
+From here, the [API reference](#api-reference) below covers everything this tutorial didn't touch: authentication, static files, custom error handling, the scaffolder, and more. `gwt-cli new` (see [Scaffolding](#scaffolding-a-new-project)) generates a project shaped like this one, with a few more of these pieces already wired in.
 
 ## API reference
 
@@ -521,6 +694,12 @@ Flags: `-module <path>` (Go module path, default the project name), `-port <num>
 gwt-cli new -module example.com/myapp -port 9000 myapp
 ```
 
+## Contributing
+
+This repo documents its own conventions in unusual depth: [CLAUDE.md](CLAUDE.md) lays out the design principles and internal API surface, and [ISSUES.md](ISSUES.md) is a dated history of what's shipped, including alternatives that were tried and explicitly rejected. Before proposing a change — especially anything that looks like an obvious addition (a functional-options constructor, route groups, `c.Set`/`c.Get`, a new dependency) — check ISSUES.md's "Deferred" section; several of the obvious ideas have already been tried once and reverted, with the reasoning recorded there.
+
+Pull requests are welcome. Please keep `go build ./...`, `go vet ./...`, `go test ./...`, and `go test -race ./...` clean, and add tests alongside the code they cover (see [Testing](#testing)).
+
 ## Testing
 
 ```
@@ -529,6 +708,10 @@ go test -race ./...
 ```
 
 The whole toolkit is tested with the standard library only (`testing`, `net/http/httptest`) — no assertion library, no mocking framework.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
 
 ## Project docs
 
