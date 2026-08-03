@@ -154,7 +154,7 @@ All symbols live in package `gwt` at the module root, except the scaffolder CLI 
 - **Errors never leak to clients.** An `*HTTPError`'s `Message` is client-visible by construction; everything else renders as a generic 500 with the real cause logged. Don't put `err.Error()` in a response body.
 - **No `c.Set`/`c.Get`.** Gin has them; gwt deliberately does not. The `Ctx` is built in the innermost frame (after all middleware), so nothing is downstream of the handler to read what `c.Set` wrote — it would be a local variable with extra steps — and a gwt-namespaced key couldn't read what foreign middleware wrote under its own key type anyway. `Ctx.Value(key)` is the read side that actually has a consumer. Adding `Set`/`Get` would repeat ISSUES.md item 29 exactly: an abstraction justified by a premise that was false from the start.
 - **Shutdown hooks run LIFO** (symmetric with `defer`); startup hooks run FIFO and any error aborts startup before `ListenAndServe`. A partially-run startup list is **not** unwound — no rollback machinery, deliberately.
-- Verb-first naming: `RenderJSON`-style ordering, not `JSONRender`. File-per-role — create a new file only if a genuinely new category appears.
+- Verb-first naming: `LoadTemplates`, not `TemplatesLoad`; `ServeStatic`, not `StaticServe`. File-per-role — create a new file only if a genuinely new category appears.
 - Every exported symbol must have a godoc comment. `go vet ./...` must stay clean.
 - slog keys are lowercase, no punctuation (`addr`, `method`, `path`, `env`, `status`). Never `"Method:"` or similar.
 

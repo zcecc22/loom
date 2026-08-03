@@ -243,6 +243,34 @@ func TestCtxQueryDefaultPrefersPresentValue(t *testing.T) {
 	}
 }
 
+func TestCtxFormValueReadsBodyAndQuery(t *testing.T) {
+	a := New(AppConfig{Logger: discardLogger()})
+	var fromBody, fromQuery, missing string
+
+	a.POST("/t", func(c *Ctx) error {
+		fromBody = c.FormValue("name")
+		fromQuery = c.FormValue("mode")
+		missing = c.FormValue("absent")
+		return c.NoContent(http.StatusOK)
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/t?mode=fast", strings.NewReader("name=widget"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	a.ServeHTTP(httptest.NewRecorder(), req)
+
+	if fromBody != "widget" {
+		t.Fatalf("FormValue(name) = %q, want widget (from the form body)", fromBody)
+	}
+	// Stdlib's FormValue consults the query string too, and gwt does not
+	// change that.
+	if fromQuery != "fast" {
+		t.Fatalf("FormValue(mode) = %q, want fast (from the query string)", fromQuery)
+	}
+	if missing != "" {
+		t.Fatalf("FormValue(absent) = %q, want empty", missing)
+	}
+}
+
 func TestCtxBindDecodesJSON(t *testing.T) {
 	a := New(AppConfig{Logger: discardLogger()})
 	type item struct {

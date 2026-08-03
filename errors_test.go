@@ -203,3 +203,30 @@ func TestNilErrorLeavesTheResponseAlone(t *testing.T) {
 		t.Fatalf("body = %s, want exactly the handler's payload", got)
 	}
 }
+
+// TestPanicAfterResponseCommittedDoesNotCorruptIt is the panic-path twin
+// of the test above. Recover renders through serverError rather than the
+// Ctx error handler, so it needs its own committed-response guard —
+// without one a handler that responds and then panics emits a valid body
+// with a second JSON object appended to it.
+func TestPanicAfterResponseCommittedDoesNotCorruptIt(t *testing.T) {
+	var buf bytes.Buffer
+	a := New(AppConfig{Logger: jsonLogger(&buf)})
+
+	rec := serve(t, a, func(c *Ctx) error {
+		if err := c.JSON(http.StatusOK, H{"ok": true}); err != nil {
+			return err
+		}
+		panic("after the response went out")
+	}, httptest.NewRequest(http.MethodGet, "/t", nil))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want the 200 the handler already committed", rec.Code)
+	}
+	if got := strings.TrimSpace(rec.Body.String()); got != `{"ok":true}` {
+		t.Fatalf("body = %s, want the committed payload with nothing appended", got)
+	}
+	if !strings.Contains(buf.String(), "after the response went out") {
+		t.Fatalf("the panic was not logged: %s", buf.String())
+	}
+}

@@ -45,9 +45,19 @@ func (a *App) LoadTemplates(fsys fs.FS, patterns ...string) error {
 // which is plain net/http and so has no Ctx to render through — Recover
 // is its one caller.
 //
-// Like defaultErrorHandler, it never puts err in the response body.
+// Like defaultErrorHandler, it never puts err in the response body, and
+// like defaultErrorHandler it refuses to write onto a response that is
+// already committed — a handler can respond in full and only then panic,
+// and appending a second body to that response would corrupt it. The
+// always-on Logging middleware is what makes the check possible: Recover
+// runs inside it, so w is the *statusWriter that knows.
 func (a *App) serverError(w http.ResponseWriter, r *http.Request, err error) {
 	a.logger.Error("gwt: server error", "err", err, "method", r.Method, "path", r.URL.Path)
+
+	if sw, ok := w.(*statusWriter); ok && sw.wroteHeader {
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(http.StatusInternalServerError)
 	if _, werr := w.Write([]byte(`{"error":"Internal Server Error"}`)); werr != nil {
