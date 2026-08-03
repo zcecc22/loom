@@ -1,0 +1,47 @@
+package gwt
+
+import (
+	"context"
+	"net/http"
+)
+
+// identityContextKey is unexported so no other package can collide with
+// or forge it.
+type identityContextKey struct{}
+
+// Auth returns a Middleware that calls authenticate for every request it
+// wraps. If authenticate reports !ok, Auth responds 401 and next is never
+// called. If it reports ok, the returned identity is stashed in the
+// request's context (read it back with Identity) and next runs.
+//
+// authenticate is where the actual credential check lives — Basic auth via
+// r.BasicAuth(), a bearer token from the Authorization header, a signed
+// cookie, whatever the caller needs. Auth itself is scheme-agnostic: on
+// rejection it writes a plain 401 with no WWW-Authenticate header, since
+// it has no way to know which scheme authenticate implements.
+//
+// Auth is route-level middleware, passed as a trailing argument to
+// Get/Post/etc. — it is not global or automatic. Protecting only some
+// routes is just a matter of only passing it to those routes' calls; no
+// separate grouping mechanism is needed.
+func (a *App) Auth(authenticate func(r *http.Request) (identity string, ok bool)) Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			identity, ok := authenticate(r)
+			if !ok {
+				http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+				return
+			}
+			ctx := context.WithValue(r.Context(), identityContextKey{}, identity)
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}
+
+// Identity returns the identity string an Auth middleware stashed in r's
+// context, and whether one was set. ok is false if r never passed through
+// Auth (or if the request context was replaced without carrying it along).
+func Identity(r *http.Request) (identity string, ok bool) {
+	identity, ok = r.Context().Value(identityContextKey{}).(string)
+	return identity, ok
+}

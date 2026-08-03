@@ -50,6 +50,9 @@ The import path is the module path above; the package name is `gwt` (they don't 
 | Routing | `Get`/`Post`/`Put`/`Patch`/`Delete`/`Handle`, stdlib `ServeMux` patterns + path params |
 | Middleware | Automatic logging + panic recovery, `Use` for anything more |
 | Rendering | `RenderJSON`, `RenderTemplate` (XSS-safe, buffered), `RenderServerError` |
+| Static files | `ServeStatic` — directory serving with directory-listing disabled by default |
+| Security | Opt-in `SecureHeaders`, `MaxBodySize`, `HSTS` middleware |
+| Authentication | Generic, scheme-agnostic `Auth` middleware + `Identity` accessor |
 | Lifecycle | `Run`/`RunContext` with graceful shutdown, startup/shutdown hooks |
 | Config | Env-based `LoadConfig`, fail-fast on malformed values |
 | Scaffolding | `gwt-cli new` — runnable app + Dockerfile/compose/deploy script |
@@ -179,6 +182,71 @@ app.RenderServerError(w, r, err error)
 
 `RenderJSON` marshals and writes `data`; a marshal error is reported via `RenderServerError` instead of a partial write. `RenderTemplate` parses `tmplPath` and executes it via `html/template` (auto-escaping — safe against XSS by construction) into an in-memory buffer *before* writing anything to `w`, so a parse or execute failure never produces a partial response. `RenderServerError` logs `err` and writes a 500; it's the shared error path for the two render helpers above and for `Recover`.
 
+### Static files
+
+```go
+app.ServeStatic(urlPrefix, dir string, mw ...Middleware)
+```
+
+Serves files from `dir` at `urlPrefix` (a subtree pattern — supply the trailing `/` yourself, e.g. `"/static/"`) via `http.FileServer`. Unlike a bare `http.FileServer`, a directory request without an `index.html` 404s instead of rendering a directory listing — everything else behaves like stdlib, including path-traversal confinement (inherited from `http.Dir`, not reimplemented).
+
+```go
+app.ServeStatic("/static/", "./static")
+// GET /static/app.css        -> serves ./static/app.css
+// GET /static/images/        -> 404, no listing (unless images/index.html exists)
+// GET /static/images/pic.png -> serves it normally
+```
+
+### Security
+
+```go
+app.SecureHeaders() Middleware // X-Content-Type-Options, X-Frame-Options, Referrer-Policy
+app.MaxBodySize(n int64) Middleware // caps request body size via http.MaxBytesReader
+app.HSTS() Middleware // Strict-Transport-Security
+```
+
+All three are opt-in via `Use` (or route-level `mw`) — never automatic, unlike `Logging`/`Recover`. A header like `X-Frame-Options` can break a legitimate use case (intentional iframe embedding), so it isn't safe to force on every `App` by default.
+
+`SecureHeaders` deliberately omits `X-XSS-Protection` (deprecated — the legacy filter it enabled had vulnerabilities of its own) and `Content-Security-Policy`/`Permissions-Policy` (no safe one-size-fits-all default exists — add your own if your app needs one). `HSTS` is kept separate from `SecureHeaders` on purpose: it's only correct when this deployment is actually reached over HTTPS (directly, or via a TLS-terminating reverse proxy) — turn it on deliberately per-deployment (e.g. gated on `Env == "prod"`), since enabling it for a plain-HTTP deployment like local dev would be wrong, not just unnecessary.
+
+```go
+app := gwt.New()
+app.Use(app.SecureHeaders(), app.MaxBodySize(10<<20)) // 10 MiB
+if cfg.Env == "prod" {
+	app.Use(app.HSTS())
+}
+```
+
+### Authentication
+
+```go
+app.Auth(authenticate func(r *http.Request) (identity string, ok bool)) Middleware
+gwt.Identity(r *http.Request) (identity string, ok bool)
+```
+
+`Auth` is generic and scheme-agnostic: you supply `authenticate`, which does the actual credential check (Basic auth, a bearer token, a signed cookie — whatever your app needs) and returns an identity string plus whether it's valid. On `!ok`, `Auth` responds `401` and the handler never runs. On `ok`, the identity is stashed in the request context; read it back in your handler with `gwt.Identity(r)`.
+
+`Auth` is route-level middleware — pass it as a trailing argument to `Get`/`Post`/etc. to protect specific routes. There's no grouping mechanism and none is needed: protecting a subset of routes is just a matter of which registration calls you pass `Auth(...)` to.
+
+A worked example using HTTP Basic Auth:
+
+```go
+app.Get("/admin", adminHandler, app.Auth(func(r *http.Request) (string, bool) {
+	user, pass, ok := r.BasicAuth()
+	if !ok || !validCredentials(user, pass) {
+		return "", false
+	}
+	return user, true
+}))
+
+func adminHandler(w http.ResponseWriter, r *http.Request) {
+	user, _ := gwt.Identity(r)
+	app.RenderJSON(w, r, map[string]string{"logged_in_as": user}, http.StatusOK)
+}
+```
+
+`gwt` doesn't provide a built-in Basic/Bearer/session implementation — `authenticate` is where you plug in whichever scheme you need. This also means `gwt` doesn't issue, sign, or store sessions, and has no CSRF token mechanism; `Auth` is a building block for that, not a session framework.
+
 ### Server lifecycle
 
 ```go
@@ -250,7 +318,7 @@ app.Logger() *slog.Logger
   app.Get("/items/{id}", itemsGet(app, store))
   ```
 
-- **Use `Use` for cross-cutting concerns**, applied once, right after `New` — auth, request IDs, CORS, whatever your app needs beyond logging/recovery. Route-level `mw` (the trailing arguments to `Get`/`Post`/etc.) is for per-route behavior instead.
+- **Use `Use` for concerns that apply to every route** — security headers, request IDs, CORS, whatever your app needs beyond logging/recovery — applied once, right after `New`. Use route-level `mw` (the trailing arguments to `Get`/`Post`/etc.) instead for anything that shouldn't apply everywhere — `Auth` is the main example: wiring it into `Use` would lock out every route, including ones that should stay public (health checks, static assets), so it's designed to be passed only to the specific routes that need it.
 - **Keep routes flat.** There's no `Group`. If you have `/api/v1/...`-style paths, write the full pattern string at each call site — a small amount of repetition in exchange for never having to reason about how prefixes and middleware compose across nesting levels.
 - **Test handlers directly against `App`.** `App` implements `http.Handler`, so `httptest.NewRecorder()` + `app.ServeHTTP(rec, req)` — or `httptest.NewServer(app)` for a real listener — is all you need; no framework-specific test harness.
 - **Prefer `RunContext` over `Run` when embedding gwt in something larger** (e.g. a supervisor that manages multiple services) — pass your own cancelable context instead of relying on OS signal handling.
