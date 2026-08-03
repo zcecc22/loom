@@ -9,20 +9,20 @@ import (
 func TestVerbHelpersRouteToCorrectHandlerAndPathValue(t *testing.T) {
 	a := New()
 
-	verbs := map[string]func(string, http.HandlerFunc, ...Middleware){
-		http.MethodGet:    a.Get,
-		http.MethodPost:   a.Post,
-		http.MethodPut:    a.Put,
-		http.MethodPatch:  a.Patch,
-		http.MethodDelete: a.Delete,
+	verbs := map[string]func(string, Handler, ...Middleware){
+		http.MethodGet:    a.GET,
+		http.MethodPost:   a.POST,
+		http.MethodPut:    a.PUT,
+		http.MethodPatch:  a.PATCH,
+		http.MethodDelete: a.DELETE,
 	}
 
 	for method, register := range verbs {
 		method, register := method, register
 		var gotID string
-		register("/items/{id}", func(w http.ResponseWriter, r *http.Request) {
-			gotID = r.PathValue("id")
-			w.WriteHeader(http.StatusOK)
+		register("/items/{id}", func(c *Ctx) error {
+			gotID = c.Param("id")
+			return c.NoContent(http.StatusOK)
 		})
 
 		rec := httptest.NewRecorder()
@@ -33,16 +33,16 @@ func TestVerbHelpersRouteToCorrectHandlerAndPathValue(t *testing.T) {
 			t.Fatalf("%s /items/{id}: status = %d, want 200", method, rec.Code)
 		}
 		if gotID != "42" {
-			t.Fatalf("%s /items/{id}: PathValue(id) = %q, want 42", method, gotID)
+			t.Fatalf("%s /items/{id}: Param(id) = %q, want 42", method, gotID)
 		}
 	}
 }
 
 func TestHandleAnyVerbWhenMethodEmpty(t *testing.T) {
 	a := New()
-	a.Handle("", "/any", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
+	a.Handle("", "/any", func(c *Ctx) error {
+		return c.NoContent(http.StatusOK)
+	})
 
 	for _, method := range []string{http.MethodGet, http.MethodPost, http.MethodDelete} {
 		rec := httptest.NewRecorder()
@@ -50,6 +50,34 @@ func TestHandleAnyVerbWhenMethodEmpty(t *testing.T) {
 		if rec.Code != http.StatusOK {
 			t.Fatalf("%s /any: status = %d, want 200", method, rec.Code)
 		}
+	}
+}
+
+func TestHandleHTTPMountsPlainNetHTTPHandler(t *testing.T) {
+	// HandleHTTP is the escape hatch: no Ctx is built, and the handler's own
+	// response is what reaches the client. Route middleware still applies.
+	a := New(AppConfig{Logger: discardLogger()})
+	a.HandleHTTP(http.MethodGet, "/raw", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTeapot)
+		w.Write([]byte("raw"))
+	}), func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("X-Raw", "1")
+			next.ServeHTTP(w, r)
+		})
+	})
+
+	rec := httptest.NewRecorder()
+	a.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/raw", nil))
+
+	if rec.Code != http.StatusTeapot {
+		t.Fatalf("status = %d, want 418", rec.Code)
+	}
+	if got := rec.Body.String(); got != "raw" {
+		t.Fatalf("body = %q, want %q", got, "raw")
+	}
+	if got := rec.Header().Get("X-Raw"); got != "1" {
+		t.Fatalf("X-Raw = %q, want 1 (route middleware should still wrap HandleHTTP)", got)
 	}
 }
 
@@ -66,9 +94,9 @@ func TestEndToEndDefaultAndUseMiddlewareOrder(t *testing.T) {
 
 	a := New(AppConfig{Logger: discardLogger()})
 	a.Use(tag("used"))
-	a.Get("/items/{id}", func(w http.ResponseWriter, r *http.Request) {
+	a.GET("/items/{id}", func(c *Ctx) error {
 		order = append(order, "handler")
-		w.WriteHeader(http.StatusOK)
+		return c.NoContent(http.StatusOK)
 	}, tag("route"))
 
 	rec := httptest.NewRecorder()

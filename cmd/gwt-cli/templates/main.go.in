@@ -1,12 +1,20 @@
 package main
 
 import (
+	"embed"
 	"log/slog"
 	"net/http"
 	"os"
 
 	gwt "{{.GwtModule}}"
 )
+
+// templatesFS embeds the template set into the binary, so rendering works
+// regardless of the working directory. LoadTemplates accepts any fs.FS —
+// os.DirFS("templates") would read from disk instead.
+//
+//go:embed templates
+var templatesFS embed.FS
 
 func main() {
 	cfg, err := gwt.LoadConfig()
@@ -17,6 +25,11 @@ func main() {
 
 	app := gwt.New(gwt.AppConfig{Config: cfg})
 
+	if err := app.LoadTemplates(templatesFS, "templates/*.tmpl"); err != nil {
+		app.Logger().Error("gwt: loading templates", "err", err)
+		os.Exit(1)
+	}
+
 	// SecureHeaders sets X-Content-Type-Options/X-Frame-Options/
 	// Referrer-Policy. MaxBodySize and HSTS are also available
 	// (app.MaxBodySize, app.HSTS) but aren't wired in by default — HSTS
@@ -24,21 +37,32 @@ func main() {
 	// HTTPS, which isn't true of a fresh scaffold running locally.
 	app.Use(app.SecureHeaders())
 
-	app.Get("/", func(w http.ResponseWriter, r *http.Request) {
-		app.RenderJSON(w, r, map[string]string{"hello": "{{.Name}}"}, http.StatusOK)
+	app.GET("/", func(c *gwt.Ctx) error {
+		return c.JSON(http.StatusOK, gwt.H{"hello": "{{.Name}}"})
 	})
 
-	app.Get("/page", func(w http.ResponseWriter, r *http.Request) {
-		app.RenderTemplate(w, r, "templates/index.tmpl", map[string]string{"Name": "{{.Name}}"}, http.StatusOK)
+	app.GET("/page", func(c *gwt.Ctx) error {
+		return c.HTML(http.StatusOK, "index.tmpl", gwt.H{"Name": "{{.Name}}"})
 	})
 
 	app.ServeStatic("/static/", "static")
 
+	// Returning an error from a handler renders it: an *HTTPError (from
+	// gwt.Status or gwt.StatusErr) supplies the status and a client-visible
+	// message, and any other error becomes a 500 whose detail stays in the
+	// log rather than reaching the client.
+	app.GET("/items/{id}", func(c *gwt.Ctx) error {
+		if c.Param("id") != "1" {
+			return gwt.Status(http.StatusNotFound, "no such item")
+		}
+		return c.JSON(http.StatusOK, gwt.H{"id": c.Param("id")})
+	})
+
 	adminUser := os.Getenv("ADMIN_USER")
 	adminPassword := os.Getenv("ADMIN_PASSWORD")
-	app.Get("/admin", func(w http.ResponseWriter, r *http.Request) {
-		user, _ := gwt.Identity(r)
-		app.RenderJSON(w, r, map[string]string{"logged_in_as": user}, http.StatusOK)
+	app.GET("/admin", func(c *gwt.Ctx) error {
+		user, _ := c.Identity()
+		return c.JSON(http.StatusOK, gwt.H{"logged_in_as": user})
 	}, app.Auth(func(r *http.Request) (string, bool) {
 		user, pass, ok := r.BasicAuth()
 		if !ok || user != adminUser || pass != adminPassword {

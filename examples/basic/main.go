@@ -1,12 +1,15 @@
 // Command basic is a single-file tour of every construct gwt provides:
 // config loading (LoadConfig, NewLogger), full construction (AppConfig —
-// Config, Logger, OnStart, OnShutdown, BaseContext), all five routing
-// verbs plus the generic Handle, middleware (Use, route-level mw, Chain,
-// the automatic Logging/Recover pair, and the opt-in
-// SecureHeaders/MaxBodySize/HSTS), rendering (RenderJSON, RenderTemplate,
-// RenderServerError), static file serving (ServeStatic), authentication
-// (Auth, Identity), and both startup patterns (Run, and Handler embedded
-// in your own *http.Server or mux).
+// Config, Logger, Templates, ErrorHandler, OnStart, OnShutdown,
+// BaseContext), all five routing verbs plus the generic Handle and the
+// net/http escape hatch HandleHTTP, middleware (Use, route-level mw,
+// Chain, the automatic Logging/Recover pair, and the opt-in
+// SecureHeaders/MaxBodySize/HSTS), the Ctx request/response helpers
+// (Param, Query, Bind, JSON, String, HTML, NoContent, Redirect), error
+// handling (returning an error, Status, StatusErr, HTTPError), template
+// loading (LoadTemplates), static file serving (ServeStatic),
+// authentication (Auth, Ctx.Identity), and both startup patterns (Run,
+// and Handler embedded in your own *http.Server or mux).
 //
 // See cmd/gwt-cli for the canonical scaffolded-project template with
 // Docker deployment output; this file is a broader single-file API tour
@@ -15,7 +18,7 @@ package main
 
 import (
 	"context"
-	"encoding/json"
+	"embed"
 	"errors"
 	"log/slog"
 	"net"
@@ -25,12 +28,23 @@ import (
 	gwt "git.frentzel.xyz/home/zcecc22/git/go-web-toolkit.git"
 )
 
+// templatesFS embeds the template set, so the binary renders correctly no
+// matter what directory it runs from. LoadTemplates takes any fs.FS, so
+// os.DirFS("templates") would work here too — at the cost of needing the
+// files alongside the binary at runtime.
+//
+//go:embed templates
+var templatesFS embed.FS
+
 // Item is the demo payload used by the /items routes.
 type Item struct {
 	Name string `json:"name"`
 }
 
-func newApp(cfg gwt.Config, logger *slog.Logger) *gwt.App {
+// errNoSuchItem stands in for whatever a real storage layer would return.
+var errNoSuchItem = errors.New("no such item")
+
+func newApp(cfg gwt.Config, logger *slog.Logger) (*gwt.App, error) {
 	app := gwt.New(gwt.AppConfig{
 		Config: cfg,
 		Logger: logger,
@@ -56,6 +70,12 @@ func newApp(cfg gwt.Config, logger *slog.Logger) *gwt.App {
 		},
 	})
 
+	// Parsed once, here, rather than per request. Templates could equally
+	// have been passed as AppConfig.Templates above.
+	if err := app.LoadTemplates(templatesFS, "templates/*.tmpl"); err != nil {
+		return nil, err
+	}
+
 	// Logging and Recover are wired automatically by New — no code needed
 	// for those two. Everything else is opt-in: SecureHeaders and
 	// MaxBodySize apply to every route via Use; HSTS is deliberately left
@@ -65,59 +85,98 @@ func newApp(cfg gwt.Config, logger *slog.Logger) *gwt.App {
 		app.Use(app.HSTS())
 	}
 
-	// --- Rendering: RenderJSON, RenderTemplate, RenderServerError ---
+	// --- Responses: Ctx.JSON, Ctx.HTML, Ctx.String, Ctx.NoContent ---
 
-	app.Get("/", func(w http.ResponseWriter, r *http.Request) {
-		app.RenderJSON(w, r, map[string]string{"hello": "world"}, http.StatusOK)
+	app.GET("/", func(c *gwt.Ctx) error {
+		return c.JSON(http.StatusOK, gwt.H{"hello": "world"})
 	})
 
-	app.Get("/items/{id}", func(w http.ResponseWriter, r *http.Request) {
-		app.RenderJSON(w, r, map[string]string{"id": r.PathValue("id")}, http.StatusOK)
+	// Param reads a stdlib ServeMux wildcard; Query reads the URL query.
+	app.GET("/items/{id}", func(c *gwt.Ctx) error {
+		return c.JSON(http.StatusOK, gwt.H{
+			"id":     c.Param("id"),
+			"format": c.QueryDefault("format", "full"),
+		})
 	})
 
-	app.Post("/items", func(w http.ResponseWriter, r *http.Request) {
+	// Bind decodes JSON and, on malformed input, returns an error that
+	// already carries a 400 — so the whole failure path is `return err`.
+	app.POST("/items", func(c *gwt.Ctx) error {
 		var in Item
-		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-			app.RenderServerError(w, r, err)
-			return
+		if err := c.Bind(&in); err != nil {
+			return err
 		}
-		app.RenderJSON(w, r, in, http.StatusCreated)
+		if in.Name == "" {
+			return gwt.Status(http.StatusBadRequest, "name is required")
+		}
+		return c.JSON(http.StatusCreated, in)
 	})
 
-	app.Put("/items/{id}", func(w http.ResponseWriter, r *http.Request) {
-		app.RenderJSON(w, r, map[string]string{"id": r.PathValue("id"), "op": "replaced"}, http.StatusOK)
+	app.PUT("/items/{id}", func(c *gwt.Ctx) error {
+		return c.JSON(http.StatusOK, gwt.H{"id": c.Param("id"), "op": "replaced"})
 	})
 
-	app.Patch("/items/{id}", func(w http.ResponseWriter, r *http.Request) {
-		app.RenderJSON(w, r, map[string]string{"id": r.PathValue("id"), "op": "updated"}, http.StatusOK)
+	app.PATCH("/items/{id}", func(c *gwt.Ctx) error {
+		return c.JSON(http.StatusOK, gwt.H{"id": c.Param("id"), "op": "updated"})
 	})
 
-	app.Delete("/items/{id}", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusNoContent)
+	app.DELETE("/items/{id}", func(c *gwt.Ctx) error {
+		return c.NoContent(http.StatusNoContent)
 	})
 
 	// Handle is the generic verb registration: any method as a plain
 	// string, used here for a verb without its own dedicated method.
-	app.Handle(http.MethodOptions, "/items/{id}", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Allow", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-		w.WriteHeader(http.StatusNoContent)
-	}))
-
-	app.Get("/page", func(w http.ResponseWriter, r *http.Request) {
-		app.RenderTemplate(w, r, "templates/index.tmpl", map[string]string{"Name": "kitchen sink"}, http.StatusOK)
+	app.Handle(http.MethodOptions, "/items/{id}", func(c *gwt.Ctx) error {
+		c.SetHeader("Allow", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+		return c.NoContent(http.StatusNoContent)
 	})
 
-	app.Get("/boom", func(w http.ResponseWriter, r *http.Request) {
-		app.RenderServerError(w, r, errors.New("simulated failure"))
+	// HTML renders a named template from the set loaded above.
+	app.GET("/page", func(c *gwt.Ctx) error {
+		return c.HTML(http.StatusOK, "index.tmpl", gwt.H{"Name": "kitchen sink"})
 	})
 
-	app.Get("/panic", func(w http.ResponseWriter, r *http.Request) {
+	// String writes text literally; Stringf formats (and go vet checks the
+	// format string, because of the f suffix).
+	app.GET("/hello/{name}", func(c *gwt.Ctx) error {
+		return c.Stringf(http.StatusOK, "hello, %s", c.Param("name"))
+	})
+
+	app.GET("/old-page", func(c *gwt.Ctx) error {
+		return c.Redirect(http.StatusFound, "/page")
+	})
+
+	// --- Errors ---
+
+	// Status sets the status and a client-visible message.
+	app.GET("/missing", func(c *gwt.Ctx) error {
+		return gwt.Status(http.StatusNotFound, "no such item")
+	})
+
+	// StatusErr wraps an internal cause: the client sees the standard text
+	// for the status, the cause goes to the log only.
+	app.GET("/missing-wrapped", func(c *gwt.Ctx) error {
+		return gwt.StatusErr(http.StatusNotFound, errNoSuchItem)
+	})
+
+	// A plain error is a 500 whose detail never reaches the client.
+	app.GET("/boom", func(c *gwt.Ctx) error {
+		return errors.New("simulated failure")
+	})
+
+	app.GET("/panic", func(c *gwt.Ctx) error {
 		panic("simulated panic — caught by the automatic Recover middleware")
 	})
 
 	// --- Static files ---
 
 	app.ServeStatic("/static/", "static")
+
+	// HandleHTTP mounts a plain net/http handler, bypassing Ctx — the
+	// escape hatch for third-party handlers, proxies, and the like.
+	app.HandleHTTP(http.MethodGet, "/healthz", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
 
 	// --- Route-level middleware and Chain ---
 
@@ -133,19 +192,20 @@ func newApp(cfg gwt.Config, logger *slog.Logger) *gwt.App {
 			next.ServeHTTP(w, r)
 		})
 	}
-	// Chain combines multiple gwt.Middleware values into one, for when a
-	// route needs more than one but they belong together conceptually.
-	app.Get("/chained", func(w http.ResponseWriter, r *http.Request) {
-		app.RenderJSON(w, r, map[string]bool{"ok": true}, http.StatusOK)
+	// Middleware stays plain net/http, so anything already written against
+	// func(http.Handler) http.Handler drops straight in. Chain combines
+	// several into one.
+	app.GET("/chained", func(c *gwt.Ctx) error {
+		return c.JSON(http.StatusOK, gwt.H{"ok": true})
 	}, gwt.Chain(tagHeader, timingHeader))
 
 	// --- Authentication ---
 
 	adminUser := envOrDefault("ADMIN_USER", "admin")
 	adminPassword := envOrDefault("ADMIN_PASSWORD", "changeme")
-	app.Get("/admin", func(w http.ResponseWriter, r *http.Request) {
-		user, _ := gwt.Identity(r)
-		app.RenderJSON(w, r, map[string]string{"logged_in_as": user}, http.StatusOK)
+	app.GET("/admin", func(c *gwt.Ctx) error {
+		user, _ := c.Identity()
+		return c.JSON(http.StatusOK, gwt.H{"logged_in_as": user})
 	}, app.Auth(func(r *http.Request) (string, bool) {
 		user, pass, ok := r.BasicAuth()
 		if !ok || user != adminUser || pass != adminPassword {
@@ -154,7 +214,7 @@ func newApp(cfg gwt.Config, logger *slog.Logger) *gwt.App {
 		return user, true
 	}))
 
-	return app
+	return app, nil
 }
 
 func envOrDefault(key, fallback string) string {
@@ -172,7 +232,11 @@ func main() {
 	}
 
 	logger := gwt.NewLogger(cfg.Env)
-	app := newApp(cfg, logger)
+	app, err := newApp(cfg, logger)
+	if err != nil {
+		logger.Error("gwt: setup failed", "err", err)
+		os.Exit(1)
+	}
 
 	if os.Getenv("CUSTOM_SERVER") != "" {
 		// App.Handler() returns the fully-built handler (global
@@ -182,7 +246,7 @@ func main() {
 		// under a plain http.ServeMux alongside a non-gwt route.
 		mux := http.NewServeMux()
 		mux.Handle("/", app.Handler())
-		mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		mux.HandleFunc("/ping", func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 		})
 		logger.Info("gwt: starting custom server", "addr", cfg.Addr)
@@ -196,7 +260,7 @@ func main() {
 	// Run derives its shutdown-trigger context from OS signals and calls
 	// RunContext internally — call RunContext directly instead if you
 	// need your own cancellation source (e.g. a larger app's own
-	// shutdown signal).
+	// shutdown signal). Run(":9000") would override Config.Addr.
 	if err := app.Run(); err != nil {
 		app.Logger().Error("server exited with error", "err", err)
 		os.Exit(1)

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 
 	gwt "git.frentzel.xyz/home/zcecc22/git/go-web-toolkit.git"
 )
@@ -15,46 +16,64 @@ import (
 // construct's edge cases in depth.
 func Example() {
 	logger := gwt.NewLogger("dev")
-	app := newApp(gwt.Config{Env: "dev"}, logger)
+	app, err := newApp(gwt.Config{Env: "dev"}, logger)
+	if err != nil {
+		fmt.Println("setup failed:", err)
+		return
+	}
 
-	rec := httptest.NewRecorder()
-	app.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
-	fmt.Println(rec.Code, rec.Body.String())
+	// get issues a request and prints the status, plus the body when the
+	// route returns one worth showing.
+	get := func(req *http.Request, showBody bool) {
+		rec := httptest.NewRecorder()
+		app.ServeHTTP(rec, req)
+		if showBody {
+			fmt.Println(rec.Code, rec.Body.String())
+			return
+		}
+		fmt.Println(rec.Code)
+	}
 
-	rec2 := httptest.NewRecorder()
-	app.ServeHTTP(rec2, httptest.NewRequest(http.MethodGet, "/items/42", nil))
-	fmt.Println(rec2.Code, rec2.Body.String())
+	get(httptest.NewRequest(http.MethodGet, "/", nil), true)
+	get(httptest.NewRequest(http.MethodGet, "/items/42?format=short", nil), true)
+	get(httptest.NewRequest(http.MethodGet, "/hello/world", nil), true)
+
+	// Bind rejects a malformed body with a 400, not a 500.
+	get(httptest.NewRequest(http.MethodPost, "/items", strings.NewReader("{oops")), true)
+	// A valid body that fails the handler's own check.
+	get(httptest.NewRequest(http.MethodPost, "/items", strings.NewReader(`{"name":""}`)), true)
+	get(httptest.NewRequest(http.MethodPost, "/items", strings.NewReader(`{"name":"widget"}`)), true)
+
+	// Status supplies the client-visible message; StatusErr keeps the
+	// wrapped cause in the log and sends only the standard text.
+	get(httptest.NewRequest(http.MethodGet, "/missing", nil), true)
+	get(httptest.NewRequest(http.MethodGet, "/missing-wrapped", nil), true)
+	// A plain error: 500, with the real cause logged rather than sent.
+	get(httptest.NewRequest(http.MethodGet, "/boom", nil), true)
 
 	// /admin without credentials: rejected by Auth.
-	rec3 := httptest.NewRecorder()
-	app.ServeHTTP(rec3, httptest.NewRequest(http.MethodGet, "/admin", nil))
-	fmt.Println(rec3.Code)
+	get(httptest.NewRequest(http.MethodGet, "/admin", nil), false)
 
 	// /admin with credentials: accepted, Identity() round-trips.
-	rec4 := httptest.NewRecorder()
-	req4 := httptest.NewRequest(http.MethodGet, "/admin", nil)
-	req4.SetBasicAuth("admin", "changeme")
-	app.ServeHTTP(rec4, req4)
-	fmt.Println(rec4.Code, rec4.Body.String())
+	authed := httptest.NewRequest(http.MethodGet, "/admin", nil)
+	authed.SetBasicAuth("admin", "changeme")
+	get(authed, true)
 
-	// ServeStatic.
-	rec5 := httptest.NewRecorder()
-	app.ServeHTTP(rec5, httptest.NewRequest(http.MethodGet, "/static/style.css", nil))
-	fmt.Println(rec5.Code)
-
-	// RenderTemplate.
-	rec6 := httptest.NewRecorder()
-	app.ServeHTTP(rec6, httptest.NewRequest(http.MethodGet, "/page", nil))
-	fmt.Println(rec6.Code)
-
-	// A panicking handler: caught by the automatic Recover middleware.
-	rec7 := httptest.NewRecorder()
-	app.ServeHTTP(rec7, httptest.NewRequest(http.MethodGet, "/panic", nil))
-	fmt.Println(rec7.Code)
+	// ServeStatic, Ctx.HTML, and the automatic Recover middleware.
+	get(httptest.NewRequest(http.MethodGet, "/static/style.css", nil), false)
+	get(httptest.NewRequest(http.MethodGet, "/page", nil), false)
+	get(httptest.NewRequest(http.MethodGet, "/panic", nil), false)
 
 	// Output:
 	// 200 {"hello":"world"}
-	// 200 {"id":"42"}
+	// 200 {"format":"short","id":"42"}
+	// 200 hello, world
+	// 400 {"error":"invalid JSON body"}
+	// 400 {"error":"name is required"}
+	// 201 {"name":"widget"}
+	// 404 {"error":"no such item"}
+	// 404 {"error":"Not Found"}
+	// 500 {"error":"Internal Server Error"}
 	// 401
 	// 200 {"logged_in_as":"admin"}
 	// 200

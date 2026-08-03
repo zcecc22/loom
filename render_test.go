@@ -2,7 +2,6 @@ package gwt
 
 import (
 	"bytes"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -12,119 +11,119 @@ import (
 	"testing"
 )
 
-func TestRenderJSONHappyPath(t *testing.T) {
+// templateDirFS writes files (name -> contents) into a temp dir and returns
+// an fs.FS rooted there, for exercising LoadTemplates against real files.
+func templateDirFS(t *testing.T, files map[string]string) (dir string) {
+	t.Helper()
+	dir = t.TempDir()
+	for name, contents := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(contents), 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	return dir
+}
+
+func TestLoadTemplatesParsesMatchingFiles(t *testing.T) {
+	dir := templateDirFS(t, map[string]string{
+		"index.tmpl": `<p>{{.Name}}</p>`,
+		"other.tmpl": `<p>other</p>`,
+		"ignore.txt": `not a template`,
+	})
+
 	a := New(AppConfig{Logger: discardLogger()})
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/items/1", nil)
+	if err := a.LoadTemplates(os.DirFS(dir)); err != nil {
+		t.Fatalf("LoadTemplates: %v", err)
+	}
 
-	a.RenderJSON(rec, req, map[string]string{"name": "widget"}, http.StatusCreated)
-
-	if rec.Code != http.StatusCreated {
-		t.Fatalf("status = %d, want 201", rec.Code)
+	// The default pattern is *.tmpl, so both templates are in the set and
+	// each is named by its base filename.
+	for _, name := range []string{"index.tmpl", "other.tmpl"} {
+		if a.templates.Lookup(name) == nil {
+			t.Fatalf("template %q missing from the loaded set", name)
+		}
 	}
-	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
-		t.Fatalf("Content-Type = %q, want application/json prefix", ct)
-	}
-	var got map[string]string
-	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
-		t.Fatalf("body not valid JSON: %v (%s)", err, rec.Body.String())
-	}
-	if got["name"] != "widget" {
-		t.Fatalf("body = %v, want name=widget", got)
+	if a.templates.Lookup("ignore.txt") != nil {
+		t.Fatal("ignore.txt matched the default *.tmpl pattern, want it excluded")
 	}
 }
 
-func TestRenderJSONMarshalErrorFallsBackTo500(t *testing.T) {
-	var buf bytes.Buffer
-	a := New(AppConfig{Logger: jsonLogger(&buf)})
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/bad", nil)
+func TestLoadTemplatesExplicitPatterns(t *testing.T) {
+	dir := templateDirFS(t, map[string]string{
+		"page.html": `<p>{{.Name}}</p>`,
+	})
 
-	// A channel value cannot be marshaled to JSON.
-	a.RenderJSON(rec, req, map[string]any{"ch": make(chan int)}, http.StatusOK)
-
-	if rec.Code != http.StatusInternalServerError {
-		t.Fatalf("status = %d, want 500 on marshal error", rec.Code)
+	a := New(AppConfig{Logger: discardLogger()})
+	if err := a.LoadTemplates(os.DirFS(dir), "*.html"); err != nil {
+		t.Fatalf("LoadTemplates: %v", err)
 	}
-	if !strings.Contains(buf.String(), "server error") {
-		t.Fatalf("expected marshal error to be logged, got: %s", buf.String())
+	if a.templates.Lookup("page.html") == nil {
+		t.Fatal("page.html missing from the set loaded with an explicit pattern")
 	}
 }
 
-func TestRenderTemplateHTMLEscapesXSS(t *testing.T) {
-	dir := t.TempDir()
-	tmplPath := filepath.Join(dir, "page.tmpl")
-	if err := os.WriteFile(tmplPath, []byte(`<p>{{.Name}}</p>`), 0o644); err != nil {
-		t.Fatalf("write template: %v", err)
-	}
+func TestLoadTemplatesParseErrorIsReturned(t *testing.T) {
+	dir := templateDirFS(t, map[string]string{
+		"broken.tmpl": `{{ this is not valid`,
+	})
 
 	a := New(AppConfig{Logger: discardLogger()})
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/page", nil)
+	err := a.LoadTemplates(os.DirFS(dir))
+	if err == nil {
+		t.Fatal("LoadTemplates returned nil for an unparseable template")
+	}
+	if a.templates != nil {
+		t.Fatal("a failed LoadTemplates installed a template set anyway")
+	}
+}
 
-	payload := struct{ Name string }{Name: `<script>alert(1)</script>`}
-	a.RenderTemplate(rec, req, tmplPath, payload, http.StatusOK)
+func TestLoadTemplatesNoMatchIsError(t *testing.T) {
+	a := New(AppConfig{Logger: discardLogger()})
+	if err := a.LoadTemplates(os.DirFS(t.TempDir())); err == nil {
+		t.Fatal("LoadTemplates returned nil when no file matched the pattern")
+	}
+}
+
+func TestAppConfigTemplatesUsedWithoutLoadTemplates(t *testing.T) {
+	dir := templateDirFS(t, map[string]string{"index.tmpl": `<p>{{.Name}}</p>`})
+
+	loader := New(AppConfig{Logger: discardLogger()})
+	if err := loader.LoadTemplates(os.DirFS(dir)); err != nil {
+		t.Fatalf("LoadTemplates: %v", err)
+	}
+
+	// A set built elsewhere can be handed to New directly.
+	a := New(AppConfig{Logger: discardLogger(), Templates: loader.templates})
+	a.GET("/page", func(c *Ctx) error {
+		return c.HTML(http.StatusOK, "index.tmpl", struct{ Name string }{Name: "hi"})
+	})
+
+	rec := httptest.NewRecorder()
+	a.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/page", nil))
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rec.Code)
 	}
-	body := rec.Body.String()
-	if strings.Contains(body, "<script>") {
-		t.Fatalf("XSS payload was not escaped: %s", body)
-	}
-	if !strings.Contains(body, "&lt;script&gt;") {
-		t.Fatalf("expected escaped script tag, got: %s", body)
+	if !strings.Contains(rec.Body.String(), "hi") {
+		t.Fatalf("body = %q, want it to contain the rendered value", rec.Body.String())
 	}
 }
 
-func TestRenderTemplateExecuteErrorWritesNothingThenServerError(t *testing.T) {
-	dir := t.TempDir()
-	tmplPath := filepath.Join(dir, "bad.tmpl")
-	// {{.Missing.Field}} on a struct without that field is a runtime
-	// execute error in html/template.
-	if err := os.WriteFile(tmplPath, []byte(`{{.Missing.Field}}`), 0o644); err != nil {
-		t.Fatalf("write template: %v", err)
-	}
-
-	var buf bytes.Buffer
-	a := New(AppConfig{Logger: jsonLogger(&buf)})
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/bad", nil)
-
-	a.RenderTemplate(rec, req, tmplPath, struct{ Name string }{Name: "x"}, http.StatusOK)
-
-	if rec.Code != http.StatusInternalServerError {
-		t.Fatalf("status = %d, want 500 on execute error", rec.Code)
-	}
-	if !strings.Contains(buf.String(), "server error") {
-		t.Fatalf("expected execute error to be logged, got: %s", buf.String())
-	}
-}
-
-func TestRenderTemplateParseErrorIsServerError(t *testing.T) {
-	a := New(AppConfig{Logger: discardLogger()})
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/missing", nil)
-
-	a.RenderTemplate(rec, req, filepath.Join(t.TempDir(), "does-not-exist.tmpl"), nil, http.StatusOK)
-
-	if rec.Code != http.StatusInternalServerError {
-		t.Fatalf("status = %d, want 500 on parse error", rec.Code)
-	}
-}
-
-func TestRenderServerErrorLogsAndWrites500(t *testing.T) {
+func TestServerErrorLogsAndWrites500WithoutLeakingTheCause(t *testing.T) {
 	var buf bytes.Buffer
 	a := New(AppConfig{Logger: jsonLogger(&buf)})
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/err", nil)
 
-	a.RenderServerError(rec, req, errors.New("boom"))
+	a.serverError(rec, req, errors.New("boom: secret detail"))
 
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want 500", rec.Code)
 	}
-	if !strings.Contains(buf.String(), "boom") {
-		t.Fatalf("expected error message logged, got: %s", buf.String())
+	if !strings.Contains(buf.String(), "boom: secret detail") {
+		t.Fatalf("expected the cause to be logged, got: %s", buf.String())
+	}
+	if strings.Contains(rec.Body.String(), "secret detail") {
+		t.Fatalf("the cause leaked into the response body: %s", rec.Body.String())
 	}
 }

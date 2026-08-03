@@ -15,7 +15,7 @@ import (
 // middleware.
 func (a *App) ServeStatic(urlPrefix, dir string, mw ...Middleware) {
 	fileServer := http.FileServer(noListingFileSystem{http.Dir(dir)})
-	a.Handle(http.MethodGet, urlPrefix, http.StripPrefix(urlPrefix, fileServer), mw...)
+	a.HandleHTTP(http.MethodGet, urlPrefix, http.StripPrefix(urlPrefix, fileServer), mw...)
 }
 
 // noListingFileSystem wraps an http.FileSystem so that opening a

@@ -92,8 +92,8 @@ func TestUseWrapsWholeHandlerOnce(t *testing.T) {
 
 	a := New(AppConfig{Logger: discardLogger()})
 	a.Use(counting)
-	a.Get("/a", func(w http.ResponseWriter, r *http.Request) {})
-	a.Get("/b", func(w http.ResponseWriter, r *http.Request) {})
+	a.GET("/a", func(c *Ctx) error { return nil })
+	a.GET("/b", func(c *Ctx) error { return nil })
 
 	a.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/a", nil))
 	a.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/b", nil))
@@ -115,8 +115,9 @@ func TestUseStacksAfterDefaultsNotBefore(t *testing.T) {
 			panic("boom from Use-added middleware")
 		})
 	})
-	a.Get("/", func(w http.ResponseWriter, r *http.Request) {
+	a.GET("/", func(c *Ctx) error {
 		t.Fatal("handler should never run — Use-added middleware panics first")
+		return nil
 	})
 
 	rec := httptest.NewRecorder()
@@ -154,11 +155,11 @@ func TestHandlerCoversMuxNotFound(t *testing.T) {
 func TestNewAutoWiresLoggingAndRecoverWithNoSetup(t *testing.T) {
 	var buf bytes.Buffer
 	a := New(AppConfig{Logger: jsonLogger(&buf)})
-	a.Get("/panics", func(w http.ResponseWriter, r *http.Request) {
+	a.GET("/panics", func(c *Ctx) error {
 		panic("boom")
 	})
-	a.Get("/ok", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
+	a.GET("/ok", func(c *Ctx) error {
+		return c.NoContent(http.StatusOK)
 	})
 
 	rec := httptest.NewRecorder()

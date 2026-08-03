@@ -9,8 +9,9 @@ import (
 func TestAuthRejectsUnauthenticatedRequest(t *testing.T) {
 	a := New(AppConfig{Logger: discardLogger()})
 	var handlerCalled bool
-	a.Get("/admin", func(w http.ResponseWriter, r *http.Request) {
+	a.GET("/admin", func(c *Ctx) error {
 		handlerCalled = true
+		return nil
 	}, a.Auth(func(r *http.Request) (string, bool) {
 		return "", false
 	}))
@@ -30,9 +31,9 @@ func TestAuthAcceptsAndSetsIdentity(t *testing.T) {
 	a := New(AppConfig{Logger: discardLogger()})
 	var gotIdentity string
 	var gotOK bool
-	a.Get("/admin", func(w http.ResponseWriter, r *http.Request) {
-		gotIdentity, gotOK = Identity(r)
-		w.WriteHeader(http.StatusOK)
+	a.GET("/admin", func(c *Ctx) error {
+		gotIdentity, gotOK = Identity(c.R)
+		return c.NoContent(http.StatusOK)
 	}, a.Auth(func(r *http.Request) (string, bool) {
 		return "alice", true
 	}))
@@ -58,9 +59,9 @@ func TestIdentityWithoutAuthReturnsNotOK(t *testing.T) {
 
 func TestAuthWithRealBasicAuthPattern(t *testing.T) {
 	a := New(AppConfig{Logger: discardLogger()})
-	a.Get("/admin", func(w http.ResponseWriter, r *http.Request) {
-		user, _ := Identity(r)
-		w.Write([]byte("hello " + user))
+	a.GET("/admin", func(c *Ctx) error {
+		user, _ := c.Identity()
+		return c.String(http.StatusOK, "hello "+user)
 	}, a.Auth(func(r *http.Request) (string, bool) {
 		user, pass, ok := r.BasicAuth()
 		if !ok || user != "admin" || pass != "secret" {
