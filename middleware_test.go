@@ -22,6 +22,18 @@ func jsonLogger(buf *bytes.Buffer) *slog.Logger {
 	return slog.New(slog.NewJSONHandler(buf, nil))
 }
 
+// mustNew calls New and fails the test immediately if it returns an error
+// — the common case in this suite, where a bad AppConfig isn't what's
+// being tested.
+func mustNew(t *testing.T, cfg ...AppConfig) *App {
+	t.Helper()
+	a, err := New(cfg...)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	return a
+}
+
 func TestChainOrderMatchesRequestFlow(t *testing.T) {
 	var order []string
 
@@ -63,7 +75,7 @@ func TestChainEmpty(t *testing.T) {
 
 func TestRecoverCatchesPanicAndLogs500(t *testing.T) {
 	var buf bytes.Buffer
-	a := New(AppConfig{Logger: jsonLogger(&buf)})
+	a := mustNew(t, AppConfig{Logger: jsonLogger(&buf)})
 
 	h := a.Recover()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		panic("boom")
@@ -84,7 +96,7 @@ func TestRecoverCatchesPanicAndLogs500(t *testing.T) {
 }
 
 func TestRecoverNoPanicPassesThrough(t *testing.T) {
-	a := New(AppConfig{Logger: discardLogger()})
+	a := mustNew(t, AppConfig{Logger: discardLogger()})
 	h := a.Recover()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusTeapot)
 	}))
@@ -99,7 +111,7 @@ func TestRecoverNoPanicPassesThrough(t *testing.T) {
 
 func TestLoggingLogsExactlyOnceOnPanic(t *testing.T) {
 	var buf bytes.Buffer
-	a := New(AppConfig{Logger: jsonLogger(&buf)})
+	a := mustNew(t, AppConfig{Logger: jsonLogger(&buf)})
 
 	h := Chain(a.Logging(), a.Recover())(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		panic("boom")
@@ -128,7 +140,7 @@ func TestLoggingLogsExactlyOnceOnPanic(t *testing.T) {
 
 func TestLoggingLogsExactlyOnceHappyPath(t *testing.T) {
 	var buf bytes.Buffer
-	a := New(AppConfig{Logger: jsonLogger(&buf)})
+	a := mustNew(t, AppConfig{Logger: jsonLogger(&buf)})
 
 	h := a.Logging()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusCreated)

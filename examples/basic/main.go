@@ -45,7 +45,12 @@ type Item struct {
 var errNoSuchItem = errors.New("no such item")
 
 func newApp(cfg gwt.ServerConfig, logger *slog.Logger) (*gwt.App, error) {
-	app := gwt.New(gwt.AppConfig{
+	// cfg is passed in explicitly here (built from LoadServerConfig in
+	// main, below) so the logger built from cfg.Env exists before the App
+	// does. New would already load the same environment on its own if cfg
+	// were left zero — passing it through here just makes that resolved
+	// value and this function's logger agree.
+	app, err := gwt.New(gwt.AppConfig{
 		Server: cfg,
 		Logger: logger,
 		OnStart: []func(context.Context) error{
@@ -69,6 +74,9 @@ func newApp(cfg gwt.ServerConfig, logger *slog.Logger) (*gwt.App, error) {
 			return context.Background()
 		},
 	})
+	if err != nil {
+		return nil, err
+	}
 
 	// Parsed once, here, rather than per request. Templates could equally
 	// have been passed as AppConfig.Templates above.

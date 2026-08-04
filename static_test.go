@@ -15,7 +15,7 @@ func TestServeStaticServesFile(t *testing.T) {
 		t.Fatalf("write file: %v", err)
 	}
 
-	a := New(AppConfig{Logger: discardLogger()})
+	a := mustNew(t, AppConfig{Logger: discardLogger()})
 	a.ServeStatic("/static/", dir)
 
 	rec := httptest.NewRecorder()
@@ -39,7 +39,7 @@ func TestServeStaticDirectoryWithoutIndexReturns404(t *testing.T) {
 		t.Fatalf("write file: %v", err)
 	}
 
-	a := New(AppConfig{Logger: discardLogger()})
+	a := mustNew(t, AppConfig{Logger: discardLogger()})
 	a.ServeStatic("/static/", dir)
 
 	rec := httptest.NewRecorder()
@@ -63,7 +63,7 @@ func TestServeStaticDirectoryWithIndexServesIt(t *testing.T) {
 		t.Fatalf("write file: %v", err)
 	}
 
-	a := New(AppConfig{Logger: discardLogger()})
+	a := mustNew(t, AppConfig{Logger: discardLogger()})
 	a.ServeStatic("/static/", dir)
 
 	rec := httptest.NewRecorder()
@@ -87,7 +87,7 @@ func TestServeStaticPathTraversalCannotEscapeDir(t *testing.T) {
 		t.Fatalf("write secret file: %v", err)
 	}
 
-	a := New(AppConfig{Logger: discardLogger()})
+	a := mustNew(t, AppConfig{Logger: discardLogger()})
 	a.ServeStatic("/static/", dir)
 
 	rec := httptest.NewRecorder()

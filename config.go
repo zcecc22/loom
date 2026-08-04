@@ -50,19 +50,18 @@ func defaultServerConfig() ServerConfig {
 	}
 }
 
-// resolveServerConfig returns c with every zero-value field replaced by the
-// corresponding field from defaultServerConfig(). This is what lets a caller
-// write AppConfig{Server: ServerConfig{Addr: ":9000"}} and have every other
-// field (the timeouts especially) still come out non-zero — a zero
-// timeout means "no timeout" in http.Server, which is exactly what New
-// must never produce by accident.
-//
-// One consequence: there's no way to explicitly request a zero timeout
-// through AppConfig — a zero value always reads as "unset, use the
-// default." That trade-off is deliberate; it's not something to work
+// resolveServerConfig returns base with every zero-value field in c
+// replacing the corresponding field in base. New calls this with base set
+// to LoadServerConfig()'s result, so the effective precedence is: an
+// explicit AppConfig.Server field, then whatever the environment provided,
+// then (only if neither set it) the hardcoded default LoadServerConfig
+// itself would already have fallen back to. A zero timeout in c never
+// means "no timeout" in http.Server — it means "unset, keep base's value"
+// — so there's no way to explicitly request a zero timeout through
+// AppConfig. That trade-off is deliberate; it's not something to work
 // around.
-func resolveServerConfig(c ServerConfig) ServerConfig {
-	d := defaultServerConfig()
+func resolveServerConfig(c, base ServerConfig) ServerConfig {
+	d := base
 	if c.Addr != "" {
 		d.Addr = c.Addr
 	}

@@ -7,7 +7,7 @@ import (
 )
 
 func TestVerbHelpersRouteToCorrectHandlerAndPathValue(t *testing.T) {
-	a := New()
+	a := mustNew(t)
 
 	verbs := map[string]func(string, Handler, ...Middleware){
 		http.MethodGet:    a.GET,
@@ -39,7 +39,7 @@ func TestVerbHelpersRouteToCorrectHandlerAndPathValue(t *testing.T) {
 }
 
 func TestHandleAnyVerbWhenMethodEmpty(t *testing.T) {
-	a := New()
+	a := mustNew(t)
 	a.Handle("", "/any", func(c *Ctx) error {
 		return c.NoContent(http.StatusOK)
 	})
@@ -56,7 +56,7 @@ func TestHandleAnyVerbWhenMethodEmpty(t *testing.T) {
 func TestHandleHTTPMountsPlainNetHTTPHandler(t *testing.T) {
 	// HandleHTTP is the escape hatch: no Ctx is built, and the handler's own
 	// response is what reaches the client. Route middleware still applies.
-	a := New(AppConfig{Logger: discardLogger()})
+	a := mustNew(t, AppConfig{Logger: discardLogger()})
 	a.HandleHTTP(http.MethodGet, "/raw", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusTeapot)
 		w.Write([]byte("raw"))
@@ -92,7 +92,7 @@ func TestEndToEndDefaultAndUseMiddlewareOrder(t *testing.T) {
 		}
 	}
 
-	a := New(AppConfig{Logger: discardLogger()})
+	a := mustNew(t, AppConfig{Logger: discardLogger()})
 	a.Use(tag("used"))
 	a.GET("/items/{id}", func(c *Ctx) error {
 		order = append(order, "handler")

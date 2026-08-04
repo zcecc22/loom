@@ -9,7 +9,7 @@ import (
 )
 
 func TestSecureHeadersSetsExpectedHeaders(t *testing.T) {
-	a := New(AppConfig{Logger: discardLogger()})
+	a := mustNew(t, AppConfig{Logger: discardLogger()})
 	h := a.SecureHeaders()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -30,7 +30,7 @@ func TestSecureHeadersSetsExpectedHeaders(t *testing.T) {
 }
 
 func TestHSTSSetsExpectedHeader(t *testing.T) {
-	a := New(AppConfig{Logger: discardLogger()})
+	a := mustNew(t, AppConfig{Logger: discardLogger()})
 	h := a.HSTS()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -45,7 +45,7 @@ func TestHSTSSetsExpectedHeader(t *testing.T) {
 }
 
 func TestMaxBodySizeRejectsOversizedBody(t *testing.T) {
-	a := New(AppConfig{Logger: discardLogger()})
+	a := mustNew(t, AppConfig{Logger: discardLogger()})
 	var readErr error
 	h := a.MaxBodySize(10)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, readErr = io.ReadAll(r.Body)
@@ -62,7 +62,7 @@ func TestMaxBodySizeRejectsOversizedBody(t *testing.T) {
 }
 
 func TestMaxBodySizePassesBodyUnderLimit(t *testing.T) {
-	a := New(AppConfig{Logger: discardLogger()})
+	a := mustNew(t, AppConfig{Logger: discardLogger()})
 	var body []byte
 	var readErr error
 	h := a.MaxBodySize(1024)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

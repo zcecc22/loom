@@ -39,10 +39,9 @@ type App struct {
 // on a plain struct literal.
 type AppConfig struct {
 	// Server holds the HTTP server's address, environment, and timeouts.
-	// A zero-value field within it falls back to the same default
-	// LoadServerConfig would use — set only the fields you want to
-	// override. This is typically LoadServerConfig()'s result, passed
-	// straight through.
+	// New already loads these from the environment on its own (see New);
+	// set a field here only to override what the environment provided (or
+	// the hardcoded default, if the environment didn't set it either).
 	Server ServerConfig
 
 	// Logger overrides the default logger built from NewLogger(Config.Env).
@@ -84,22 +83,34 @@ type AppConfig struct {
 // address, with zero further setup. Passing more than one AppConfig is
 // meaningless; only cfg[0] is used.
 //
-// New never fails or validates; a mistake in cfg (e.g. a nonsensical
-// BaseContext) surfaces later, at Run/RunContext.
+// New loads its server config from the environment itself, via
+// LoadServerConfig — ADDR, ENV, and the *_TIMEOUT variables are picked up
+// automatically, with no separate call needed. Precedence is: an explicit
+// AppConfig.Server field, then the environment, then the hardcoded
+// default. This is the one thing that can make New fail: a malformed
+// *_TIMEOUT environment variable is a fail-fast error, same as
+// LoadServerConfig's own contract. Anything else in cfg (e.g. a
+// nonsensical BaseContext) is not validated here and surfaces later, at
+// Run/RunContext.
 //
 // New unconditionally wires Logging and Recover as the App's global
 // middleware — there is no way to construct an App without them. Use Use
 // to add more middleware on top (stacked closer to the handler, so a
 // panic or early exit inside it is still caught and logged).
-func New(cfg ...AppConfig) *App {
+func New(cfg ...AppConfig) (*App, error) {
 	var c AppConfig
 	if len(cfg) > 0 {
 		c = cfg[0]
 	}
 
+	envServer, err := LoadServerConfig()
+	if err != nil {
+		return nil, err
+	}
+
 	a := &App{
 		mux:           http.NewServeMux(),
-		cfg:           resolveServerConfig(c.Server),
+		cfg:           resolveServerConfig(c.Server, envServer),
 		logger:        c.Logger,
 		templates:     c.Templates,
 		errorHandler:  c.ErrorHandler,
@@ -111,7 +122,7 @@ func New(cfg ...AppConfig) *App {
 		a.logger = NewLogger(a.cfg.Env)
 	}
 	a.global = []Middleware{a.Logging(), a.Recover()}
-	return a
+	return a, nil
 }
 
 // Use appends mw to the App's global middleware, stacked after the

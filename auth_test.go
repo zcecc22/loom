@@ -7,7 +7,7 @@ import (
 )
 
 func TestAuthRejectsUnauthenticatedRequest(t *testing.T) {
-	a := New(AppConfig{Logger: discardLogger()})
+	a := mustNew(t, AppConfig{Logger: discardLogger()})
 	var handlerCalled bool
 	a.GET("/admin", func(c *Ctx) error {
 		handlerCalled = true
@@ -28,7 +28,7 @@ func TestAuthRejectsUnauthenticatedRequest(t *testing.T) {
 }
 
 func TestAuthAcceptsAndSetsIdentity(t *testing.T) {
-	a := New(AppConfig{Logger: discardLogger()})
+	a := mustNew(t, AppConfig{Logger: discardLogger()})
 	var gotIdentity string
 	var gotOK bool
 	a.GET("/admin", func(c *Ctx) error {
@@ -58,7 +58,7 @@ func TestIdentityWithoutAuthReturnsNotOK(t *testing.T) {
 }
 
 func TestAuthWithRealBasicAuthPattern(t *testing.T) {
-	a := New(AppConfig{Logger: discardLogger()})
+	a := mustNew(t, AppConfig{Logger: discardLogger()})
 	a.GET("/admin", func(c *Ctx) error {
 		user, _ := c.Identity()
 		return c.String(http.StatusOK, "hello "+user)

@@ -6,9 +6,14 @@
 // container.
 //
 // A minimal application — New alone is logged and panic-safe, no further
-// setup required:
+// setup required. It also loads its server config from the environment
+// itself (ADDR, ENV, the *_TIMEOUT variables), which is the only thing
+// that can make it fail:
 //
-//	app := gwt.New()
+//	app, err := gwt.New()
+//	if err != nil {
+//		log.Fatal(err)
+//	}
 //	app.GET("/", func(c *gwt.Ctx) error {
 //		return c.JSON(200, gwt.H{"hello": "world"})
 //	})
