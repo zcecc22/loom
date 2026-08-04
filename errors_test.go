@@ -65,7 +65,7 @@ func TestCtxErrorCauseWrapsCauseAndUnwraps(t *testing.T) {
 }
 
 func TestHTTPErrorSuppliesStatusAndMessage(t *testing.T) {
-	a := mustNew(t, AppConfig{Logger: discardLogger()})
+	a := New(AppConfig{Logger: discardLogger()})
 	rec := serve(t, a, func(c *Ctx) error {
 		return c.Error(http.StatusNotFound, "no such item")
 	}, httptest.NewRequest(http.MethodGet, "/t", nil))
@@ -81,7 +81,7 @@ func TestHTTPErrorSuppliesStatusAndMessage(t *testing.T) {
 func TestHTTPErrorFoundAnywhereInTheChain(t *testing.T) {
 	// A handler that wraps an *HTTPError with extra context must still get
 	// that status, since errors.As walks the chain.
-	a := mustNew(t, AppConfig{Logger: discardLogger()})
+	a := New(AppConfig{Logger: discardLogger()})
 	rec := serve(t, a, func(c *Ctx) error {
 		return fmt.Errorf("loading item: %w", c.Error(http.StatusNotFound, "no such item"))
 	}, httptest.NewRequest(http.MethodGet, "/t", nil))
@@ -93,7 +93,7 @@ func TestHTTPErrorFoundAnywhereInTheChain(t *testing.T) {
 
 func TestPlainErrorBecomes500AndNeverLeaksTheCause(t *testing.T) {
 	var buf bytes.Buffer
-	a := mustNew(t, AppConfig{Logger: jsonLogger(&buf)})
+	a := New(AppConfig{Logger: jsonLogger(&buf)})
 	rec := serve(t, a, func(c *Ctx) error {
 		return errors.New("connection string: user:hunter2@db")
 	}, httptest.NewRequest(http.MethodGet, "/t", nil))
@@ -116,7 +116,7 @@ func TestClientErrorsLogAtWarnAndServerErrorsAtError(t *testing.T) {
 	// A 4xx is the caller's fault; logging it at Error would let anyone
 	// fill the error log by typing a bad URL.
 	var buf bytes.Buffer
-	a := mustNew(t, AppConfig{Logger: jsonLogger(&buf)})
+	a := New(AppConfig{Logger: jsonLogger(&buf)})
 	serve(t, a, func(c *Ctx) error {
 		return c.Error(http.StatusNotFound, "nope")
 	}, httptest.NewRequest(http.MethodGet, "/t", nil))
@@ -126,7 +126,7 @@ func TestClientErrorsLogAtWarnAndServerErrorsAtError(t *testing.T) {
 	}
 
 	var buf2 bytes.Buffer
-	b := mustNew(t, AppConfig{Logger: jsonLogger(&buf2)})
+	b := New(AppConfig{Logger: jsonLogger(&buf2)})
 	serve(t, b, func(c *Ctx) error {
 		return errors.New("boom")
 	}, httptest.NewRequest(http.MethodGet, "/t", nil))
@@ -142,7 +142,7 @@ func TestClientErrorsLogAtWarnAndServerErrorsAtError(t *testing.T) {
 // response would corrupt it, so the error handler must only log.
 func TestErrorAfterResponseCommittedDoesNotCorruptIt(t *testing.T) {
 	var buf bytes.Buffer
-	a := mustNew(t, AppConfig{Logger: jsonLogger(&buf)})
+	a := New(AppConfig{Logger: jsonLogger(&buf)})
 
 	rec := serve(t, a, func(c *Ctx) error {
 		if err := c.JSON(http.StatusOK, H{"ok": true}); err != nil {
@@ -164,7 +164,7 @@ func TestErrorAfterResponseCommittedDoesNotCorruptIt(t *testing.T) {
 }
 
 func TestCustomErrorHandlerReplacesTheDefault(t *testing.T) {
-	a := mustNew(t, AppConfig{
+	a := New(AppConfig{
 		Logger: discardLogger(),
 		ErrorHandler: func(c *Ctx, err error) {
 			if c.Written() {
@@ -191,7 +191,7 @@ func TestCustomErrorHandlerReplacesTheDefault(t *testing.T) {
 }
 
 func TestNilErrorLeavesTheResponseAlone(t *testing.T) {
-	a := mustNew(t, AppConfig{Logger: discardLogger()})
+	a := New(AppConfig{Logger: discardLogger()})
 	rec := serve(t, a, func(c *Ctx) error {
 		return c.JSON(http.StatusAccepted, H{"ok": true})
 	}, httptest.NewRequest(http.MethodGet, "/t", nil))
@@ -211,7 +211,7 @@ func TestNilErrorLeavesTheResponseAlone(t *testing.T) {
 // with a second JSON object appended to it.
 func TestPanicAfterResponseCommittedDoesNotCorruptIt(t *testing.T) {
 	var buf bytes.Buffer
-	a := mustNew(t, AppConfig{Logger: jsonLogger(&buf)})
+	a := New(AppConfig{Logger: jsonLogger(&buf)})
 
 	rec := serve(t, a, func(c *Ctx) error {
 		if err := c.JSON(http.StatusOK, H{"ok": true}); err != nil {
@@ -238,7 +238,7 @@ func TestPanicAfterResponseCommittedDoesNotCorruptIt(t *testing.T) {
 // unexported writeJSONError from three separate callers — so only an
 // end-to-end assertion holds them together.
 func TestEveryErrorPathRendersTheSameShape(t *testing.T) {
-	a := mustNew(t, AppConfig{Logger: discardLogger()})
+	a := New(AppConfig{Logger: discardLogger()})
 	a.GET("/handler-error", func(c *Ctx) error {
 		return c.Error(http.StatusNotFound, "no such item")
 	})
@@ -248,6 +248,9 @@ func TestEveryErrorPathRendersTheSameShape(t *testing.T) {
 	a.GET("/guarded", func(c *Ctx) error {
 		return nil
 	}, a.Authentication(func(r *http.Request) (string, bool) { return "", false }))
+	a.POST("/csrf-protected", func(c *Ctx) error {
+		return c.NoContent(http.StatusOK)
+	}, a.CSRF(CSRFConfig{Secret: []byte("test-secret")}))
 
 	cases := []struct {
 		name       string
@@ -261,6 +264,7 @@ func TestEveryErrorPathRendersTheSameShape(t *testing.T) {
 		{"Authentication rejected", http.MethodGet, "/guarded", http.StatusUnauthorized, `{"error":"Unauthorized"}`},
 		{"mux found no route", http.MethodGet, "/nothing-here", http.StatusNotFound, `{"error":"Not Found"}`},
 		{"mux found no method", http.MethodPost, "/handler-error", http.StatusMethodNotAllowed, `{"error":"Method Not Allowed"}`},
+		{"CSRF rejected", http.MethodPost, "/csrf-protected", http.StatusForbidden, `{"error":"Forbidden"}`},
 	}
 
 	for _, tc := range cases {
@@ -284,7 +288,7 @@ func TestEveryErrorPathRendersTheSameShape(t *testing.T) {
 func TestMethodNotAllowedKeepsStdlibAllowHeader(t *testing.T) {
 	// Rewriting the body must not cost the Allow header stdlib computed;
 	// it is the only machine-readable part of a 405.
-	a := mustNew(t, AppConfig{Logger: discardLogger()})
+	a := New(AppConfig{Logger: discardLogger()})
 	a.GET("/items/{id}", func(c *Ctx) error { return c.NoContent(http.StatusOK) })
 	a.DELETE("/items/{id}", func(c *Ctx) error { return c.NoContent(http.StatusNoContent) })
 
@@ -307,7 +311,7 @@ func TestMethodNotAllowedKeepsStdlibAllowHeader(t *testing.T) {
 // rather than a match, and mistaking those for "no route" would silently
 // turn every trailing-slash redirect into a 404.
 func TestRedirectsAreNotRewrittenAsNotFound(t *testing.T) {
-	a := mustNew(t, AppConfig{Logger: discardLogger()})
+	a := New(AppConfig{Logger: discardLogger()})
 	a.GET("/dir/", func(c *Ctx) error { return c.String(http.StatusOK, "dir") })
 	a.GET("/items/{id}", func(c *Ctx) error { return c.String(http.StatusOK, "item") })
 
@@ -342,7 +346,7 @@ func TestRedirectsAreNotRewrittenAsNotFound(t *testing.T) {
 // of serving the handler it returns: that shortcut does not populate path
 // wildcards, and Ctx.Param would silently come back empty.
 func TestPathValuesSurviveTheNotFoundWrapper(t *testing.T) {
-	a := mustNew(t, AppConfig{Logger: discardLogger()})
+	a := New(AppConfig{Logger: discardLogger()})
 	var got string
 	a.GET("/items/{id}/sub/{rest...}", func(c *Ctx) error {
 		got = c.Param("id") + "|" + c.Param("rest")
@@ -365,7 +369,7 @@ func TestPathValuesSurviveTheNotFoundWrapper(t *testing.T) {
 // ServeStatic is built on HandleHTTP, so a missing asset still 404s the way
 // http.FileServer does.
 func TestHandleHTTPErrorsAreLeftAlone(t *testing.T) {
-	a := mustNew(t, AppConfig{Logger: discardLogger()})
+	a := New(AppConfig{Logger: discardLogger()})
 	a.HandleHTTP(http.MethodGet, "/raw", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "raw plain text", http.StatusNotFound)
 	}))

@@ -4,12 +4,13 @@
 // BaseContext), all six routing verbs plus the generic Handle and the
 // net/http escape hatch HandleHTTP, middleware (Use, route-level mw,
 // Chain, the automatic Logging/Recover pair, and the opt-in
-// SecureHeaders/MaxBodySize/HSTS), the Ctx request/response helpers
-// (Param, Query, Bind, JSON, String, HTML, NoContent, Redirect), error
-// handling (returning an error, Ctx.Error, Ctx.ErrorCause, HTTPError), template
+// SecureHeaders/MaxBodySize/HSTS/CORS/CSRF), the Ctx request/response
+// helpers (Param, Query, Bind, JSON, String, HTML, NoContent, Redirect),
+// error handling (returning an error, Ctx.Error, Ctx.ErrorCause, HTTPError), template
 // loading (LoadTemplates), static file serving (ServeStatic),
-// authentication (Authentication, Ctx.Identity), and both startup patterns (Run,
-// and Handler embedded in your own *http.Server or mux).
+// authentication (Authentication, Ctx.Identity), CSRF token access
+// (Ctx.CSRFToken), and both startup patterns (Run, and Handler embedded in
+// your own *http.Server or mux).
 //
 // See cmd/gwt-cli for the canonical scaffolded-project template with
 // Docker deployment output; this file is a broader single-file API tour
@@ -24,6 +25,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"time"
 
 	gwt "github.com/zcecc22/go-web-toolkit"
 )
@@ -50,7 +52,7 @@ func newApp(cfg gwt.ServerConfig, logger *slog.Logger) (*gwt.App, error) {
 	// does. New would already load the same environment on its own if cfg
 	// were left zero — passing it through here just makes that resolved
 	// value and this function's logger agree.
-	app, err := gwt.New(gwt.AppConfig{
+	app := gwt.New(gwt.AppConfig{
 		Server: cfg,
 		Logger: logger,
 		OnStart: []func(context.Context) error{
@@ -74,9 +76,6 @@ func newApp(cfg gwt.ServerConfig, logger *slog.Logger) (*gwt.App, error) {
 			return context.Background()
 		},
 	})
-	if err != nil {
-		return nil, err
-	}
 
 	// Parsed once, here, rather than per request. Templates could equally
 	// have been passed as AppConfig.Templates above.
@@ -92,6 +91,49 @@ func newApp(cfg gwt.ServerConfig, logger *slog.Logger) (*gwt.App, error) {
 	if cfg.Env == "prod" {
 		app.Use(app.HSTS())
 	}
+
+	// --- CORS ---
+
+	// CORS is enforced by the browser, not the server: a disallowed origin
+	// still gets a normal response, just without the headers that would let
+	// the browser's script read it. AllowedOrigins is an exact-match list —
+	// "*" is also accepted, but only when AllowCredentials is false; App.CORS
+	// panics at setup if the two are combined.
+	app.Use(app.CORS(gwt.CORSConfig{
+		AllowedOrigins: []string{"https://example.com"},
+		AllowedHeaders: []string{"X-CSRF-Token"}, // see the CSRF section below
+		MaxAge:         10 * time.Minute,
+	}))
+
+	// --- CSRF ---
+
+	// CSRF uses the stateless double-submit cookie pattern, so it needs no
+	// server-side session store: a signed token cookie is issued on a safe
+	// request and must be echoed back (header or form field) on an unsafe
+	// one. csrfSecret must never be a hardcoded literal in a real app — see
+	// envOrDefault's fallback comment below.
+	//
+	// CSRF is wired route-level here (like Authentication below), not via
+	// Use: it only protects cookie/form-authenticated routes, and this file
+	// also demonstrates a plain JSON API (POST /items) that isn't
+	// cookie-based and has no CSRF cookie to check — wiring CSRF globally
+	// would 403 every one of those calls for no security benefit.
+	csrfSecret := envOrDefault("CSRF_SECRET", "demo-only-secret-do-not-use-in-prod")
+	csrf := app.CSRF(gwt.CSRFConfig{
+		Secret: []byte(csrfSecret),
+		Secure: cfg.Env == "prod",
+	})
+
+	// A minimal end-to-end demonstration of the round trip: GET hands back
+	// the current token (Ctx.CSRFToken, the handler-side read of what CSRF
+	// set), POST requires it back via the X-CSRF-Token header.
+	app.GET("/csrf-demo", func(c *gwt.Ctx) error {
+		token, _ := c.CSRFToken()
+		return c.JSON(http.StatusOK, gwt.H{"csrf_token": token})
+	}, csrf)
+	app.POST("/csrf-demo", func(c *gwt.Ctx) error {
+		return c.JSON(http.StatusOK, gwt.H{"accepted": true})
+	}, csrf)
 
 	// --- Responses: Ctx.JSON, Ctx.HTML, Ctx.String, Ctx.NoContent ---
 
@@ -234,11 +276,7 @@ func envOrDefault(key, fallback string) string {
 }
 
 func main() {
-	cfg, err := gwt.LoadServerConfig()
-	if err != nil {
-		slog.Error("gwt: invalid config", "err", err)
-		os.Exit(1)
-	}
+	cfg := gwt.LoadServerConfig()
 
 	logger := gwt.NewLogger(cfg.Env)
 	app, err := newApp(cfg, logger)

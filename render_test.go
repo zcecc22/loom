@@ -31,7 +31,7 @@ func TestLoadTemplatesParsesMatchingFiles(t *testing.T) {
 		"ignore.txt": `not a template`,
 	})
 
-	a := mustNew(t, AppConfig{Logger: discardLogger()})
+	a := New(AppConfig{Logger: discardLogger()})
 	if err := a.LoadTemplates(os.DirFS(dir)); err != nil {
 		t.Fatalf("LoadTemplates: %v", err)
 	}
@@ -53,7 +53,7 @@ func TestLoadTemplatesExplicitPatterns(t *testing.T) {
 		"page.html": `<p>{{.Name}}</p>`,
 	})
 
-	a := mustNew(t, AppConfig{Logger: discardLogger()})
+	a := New(AppConfig{Logger: discardLogger()})
 	if err := a.LoadTemplates(os.DirFS(dir), "*.html"); err != nil {
 		t.Fatalf("LoadTemplates: %v", err)
 	}
@@ -67,7 +67,7 @@ func TestLoadTemplatesParseErrorIsReturned(t *testing.T) {
 		"broken.tmpl": `{{ this is not valid`,
 	})
 
-	a := mustNew(t, AppConfig{Logger: discardLogger()})
+	a := New(AppConfig{Logger: discardLogger()})
 	err := a.LoadTemplates(os.DirFS(dir))
 	if err == nil {
 		t.Fatal("LoadTemplates returned nil for an unparseable template")
@@ -78,7 +78,7 @@ func TestLoadTemplatesParseErrorIsReturned(t *testing.T) {
 }
 
 func TestLoadTemplatesNoMatchIsError(t *testing.T) {
-	a := mustNew(t, AppConfig{Logger: discardLogger()})
+	a := New(AppConfig{Logger: discardLogger()})
 	if err := a.LoadTemplates(os.DirFS(t.TempDir())); err == nil {
 		t.Fatal("LoadTemplates returned nil when no file matched the pattern")
 	}
@@ -87,13 +87,13 @@ func TestLoadTemplatesNoMatchIsError(t *testing.T) {
 func TestAppConfigTemplatesUsedWithoutLoadTemplates(t *testing.T) {
 	dir := templateDirFS(t, map[string]string{"index.tmpl": `<p>{{.Name}}</p>`})
 
-	loader := mustNew(t, AppConfig{Logger: discardLogger()})
+	loader := New(AppConfig{Logger: discardLogger()})
 	if err := loader.LoadTemplates(os.DirFS(dir)); err != nil {
 		t.Fatalf("LoadTemplates: %v", err)
 	}
 
 	// A set built elsewhere can be handed to New directly.
-	a := mustNew(t, AppConfig{Logger: discardLogger(), Templates: loader.templates})
+	a := New(AppConfig{Logger: discardLogger(), Templates: loader.templates})
 	a.GET("/page", func(c *Ctx) error {
 		return c.HTML(http.StatusOK, "index.tmpl", struct{ Name string }{Name: "hi"})
 	})
@@ -111,7 +111,7 @@ func TestAppConfigTemplatesUsedWithoutLoadTemplates(t *testing.T) {
 
 func TestServerErrorLogsAndWrites500WithoutLeakingTheCause(t *testing.T) {
 	var buf bytes.Buffer
-	a := mustNew(t, AppConfig{Logger: jsonLogger(&buf)})
+	a := New(AppConfig{Logger: jsonLogger(&buf)})
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/err", nil)
 

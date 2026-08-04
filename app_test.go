@@ -24,15 +24,15 @@ func clearServerConfigEnv(t *testing.T) {
 
 func TestNewWithNoArgument(t *testing.T) {
 	clearServerConfigEnv(t)
-	a := mustNew(t)
+	a := New()
 	if a == nil {
-		t.Fatal("mustNew(t) returned nil")
+		t.Fatal("New() returned nil")
 	}
 	if a.logger == nil {
-		t.Fatal("mustNew(t) left logger nil")
+		t.Fatal("New() left logger nil")
 	}
 	if a.mux == nil {
-		t.Fatal("mustNew(t) left mux nil")
+		t.Fatal("New() left mux nil")
 	}
 
 	rec := httptest.NewRecorder()
@@ -45,7 +45,7 @@ func TestNewWithNoArgument(t *testing.T) {
 
 func TestAppConfigPartialConfigFillsMissingFieldsWithDefaults(t *testing.T) {
 	clearServerConfigEnv(t)
-	a := mustNew(t, AppConfig{Server: ServerConfig{Addr: ":9000"}})
+	a := New(AppConfig{Server: ServerConfig{Addr: ":9000"}})
 
 	want := defaultServerConfig()
 	want.Addr = ":9000"
@@ -56,7 +56,7 @@ func TestAppConfigPartialConfigFillsMissingFieldsWithDefaults(t *testing.T) {
 
 func TestAppConfigEachTimeoutFieldIndependentlyOverridable(t *testing.T) {
 	clearServerConfigEnv(t)
-	a := mustNew(t, AppConfig{Server: ServerConfig{
+	a := New(AppConfig{Server: ServerConfig{
 		ReadTimeout:       1 * time.Second,
 		ReadHeaderTimeout: 2 * time.Second,
 		WriteTimeout:      3 * time.Second,
@@ -92,7 +92,7 @@ func TestAppConfigFullyResolvedConfigPassesThroughUnchanged(t *testing.T) {
 		ShutdownTimeout:   15 * time.Second,
 	}
 
-	a := mustNew(t, AppConfig{Server: loaded})
+	a := New(AppConfig{Server: loaded})
 
 	if a.cfg != loaded {
 		t.Fatalf("cfg = %+v, want %+v (every field was already set, so nothing should change)", a.cfg, loaded)
@@ -101,7 +101,7 @@ func TestAppConfigFullyResolvedConfigPassesThroughUnchanged(t *testing.T) {
 
 func TestNewPicksUpEnvironmentAutomatically(t *testing.T) {
 	t.Setenv("ADDR", ":9191")
-	a := mustNew(t)
+	a := New()
 	if a.cfg.Addr != ":9191" {
 		t.Fatalf("cfg.Addr = %q, want :9191 (New should read ADDR from the environment with no AppConfig at all)", a.cfg.Addr)
 	}
@@ -109,29 +109,31 @@ func TestNewPicksUpEnvironmentAutomatically(t *testing.T) {
 
 func TestNewExplicitServerFieldOverridesEnvironment(t *testing.T) {
 	t.Setenv("ADDR", ":9191")
-	a := mustNew(t, AppConfig{Server: ServerConfig{Addr: ":7000"}})
+	a := New(AppConfig{Server: ServerConfig{Addr: ":7000"}})
 	if a.cfg.Addr != ":7000" {
 		t.Fatalf("cfg.Addr = %q, want :7000 (an explicit AppConfig.Server field should win over the environment)", a.cfg.Addr)
 	}
 }
 
-func TestNewReturnsErrorOnMalformedEnvTimeout(t *testing.T) {
+func TestNewPanicsOnMalformedEnvTimeout(t *testing.T) {
 	t.Setenv("WRITE_TIMEOUT", "not-a-duration")
-	a, err := New()
-	if err == nil {
-		t.Fatal("New() error = nil, want an error for a malformed WRITE_TIMEOUT")
-	}
-	if a != nil {
-		t.Fatalf("New() App = %v, want nil on error", a)
-	}
-	if !strings.Contains(err.Error(), "WRITE_TIMEOUT") {
-		t.Fatalf("error = %q, want it to name WRITE_TIMEOUT", err.Error())
-	}
+
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("expected New() to panic for a malformed WRITE_TIMEOUT")
+		}
+		msg := fmt.Sprintf("%v", r)
+		if !strings.Contains(msg, "WRITE_TIMEOUT") {
+			t.Fatalf("panic message = %q, want it to name WRITE_TIMEOUT", msg)
+		}
+	}()
+	New()
 }
 
 func TestNewAmbientEnvProdSelectsJSONLogger(t *testing.T) {
 	t.Setenv("ENV", "prod")
-	a := mustNew(t)
+	a := New()
 	if got := fmt.Sprintf("%T", a.Logger().Handler()); got != "*slog.JSONHandler" {
 		t.Fatalf("handler type = %s, want *slog.JSONHandler (New should pick up ENV=prod from the environment with no AppConfig.Logger set)", got)
 	}
@@ -146,7 +148,7 @@ func TestUseWrapsWholeHandlerOnce(t *testing.T) {
 		})
 	}
 
-	a := mustNew(t, AppConfig{Logger: discardLogger()})
+	a := New(AppConfig{Logger: discardLogger()})
 	a.Use(counting)
 	a.GET("/a", func(c *Ctx) error { return nil })
 	a.GET("/b", func(c *Ctx) error { return nil })
@@ -165,7 +167,7 @@ func TestUseStacksAfterDefaultsNotBefore(t *testing.T) {
 	// (before) anything registered via Use — exactly the "stacked after
 	// the defaults" guarantee documented on Use.
 	var buf bytes.Buffer
-	a := mustNew(t, AppConfig{Logger: jsonLogger(&buf)})
+	a := New(AppConfig{Logger: jsonLogger(&buf)})
 	a.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			panic("boom from Use-added middleware")
@@ -189,7 +191,7 @@ func TestUseStacksAfterDefaultsNotBefore(t *testing.T) {
 
 func TestHandlerCoversMuxNotFound(t *testing.T) {
 	var sawRequest bool
-	a := mustNew(t, AppConfig{Logger: discardLogger()})
+	a := New(AppConfig{Logger: discardLogger()})
 	a.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			sawRequest = true
@@ -210,7 +212,7 @@ func TestHandlerCoversMuxNotFound(t *testing.T) {
 
 func TestNewAutoWiresLoggingAndRecoverWithNoSetup(t *testing.T) {
 	var buf bytes.Buffer
-	a := mustNew(t, AppConfig{Logger: jsonLogger(&buf)})
+	a := New(AppConfig{Logger: jsonLogger(&buf)})
 	a.GET("/panics", func(c *Ctx) error {
 		panic("boom")
 	})
@@ -241,12 +243,12 @@ func TestNewAutoWiresLoggingAndRecoverWithNoSetup(t *testing.T) {
 
 func TestLoggerReturnsResolvedLogger(t *testing.T) {
 	custom := discardLogger()
-	a := mustNew(t, AppConfig{Logger: custom})
+	a := New(AppConfig{Logger: custom})
 	if a.Logger() != custom {
 		t.Fatal("Logger() did not return the logger passed via AppConfig.Logger")
 	}
 
-	a2 := mustNew(t)
+	a2 := New()
 	if a2.Logger() == nil {
 		t.Fatal("Logger() returned nil for a default-constructed App")
 	}

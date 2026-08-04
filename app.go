@@ -87,30 +87,26 @@ type AppConfig struct {
 // LoadServerConfig — ADDR, ENV, and the *_TIMEOUT variables are picked up
 // automatically, with no separate call needed. Precedence is: an explicit
 // AppConfig.Server field, then the environment, then the hardcoded
-// default. This is the one thing that can make New fail: a malformed
-// *_TIMEOUT environment variable is a fail-fast error, same as
-// LoadServerConfig's own contract. Anything else in cfg (e.g. a
-// nonsensical BaseContext) is not validated here and surfaces later, at
-// Run/RunContext.
+// default. This is the one thing that can make New panic: a malformed
+// *_TIMEOUT environment variable, same as LoadServerConfig's own
+// contract — a construction-time misconfiguration, not a per-request
+// condition, so it fails loudly at setup rather than being swallowed.
+// Anything else in cfg (e.g. a nonsensical BaseContext) is not validated
+// here and surfaces later, at Run/RunContext.
 //
 // New unconditionally wires Logging and Recover as the App's global
 // middleware — there is no way to construct an App without them. Use Use
 // to add more middleware on top (stacked closer to the handler, so a
 // panic or early exit inside it is still caught and logged).
-func New(cfg ...AppConfig) (*App, error) {
+func New(cfg ...AppConfig) *App {
 	var c AppConfig
 	if len(cfg) > 0 {
 		c = cfg[0]
 	}
 
-	envServer, err := LoadServerConfig()
-	if err != nil {
-		return nil, err
-	}
-
 	a := &App{
 		mux:           http.NewServeMux(),
-		cfg:           resolveServerConfig(c.Server, envServer),
+		cfg:           resolveServerConfig(c.Server, LoadServerConfig()),
 		logger:        c.Logger,
 		templates:     c.Templates,
 		errorHandler:  c.ErrorHandler,
@@ -122,7 +118,7 @@ func New(cfg ...AppConfig) (*App, error) {
 		a.logger = NewLogger(a.cfg.Env)
 	}
 	a.global = []Middleware{a.Logging(), a.Recover()}
-	return a, nil
+	return a
 }
 
 // Use appends mw to the App's global middleware, stacked after the

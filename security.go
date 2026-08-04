@@ -1,6 +1,11 @@
 package gwt
 
-import "net/http"
+import (
+	"net/http"
+	"strconv"
+	"strings"
+	"time"
+)
 
 // SecureHeaders returns a Middleware that sets a small set of
 // browser-facing defensive headers: X-Content-Type-Options (blocks
@@ -58,6 +63,179 @@ func (a *App) HSTS() Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// defaultCORSMethods is used for Access-Control-Allow-Methods when
+// CORSConfig.AllowedMethods is empty — the six gwt verb methods.
+var defaultCORSMethods = []string{
+	http.MethodGet, http.MethodPost, http.MethodPut,
+	http.MethodPatch, http.MethodDelete, http.MethodOptions,
+}
+
+// CORSConfig configures App.CORS. AllowedOrigins is an exact-match list —
+// no pattern matching beyond the literal "*" wildcard, which is only valid
+// when AllowCredentials is false: CORS itself forbids combining a
+// credentialed response with a wildcard origin, and App.CORS panics at
+// setup if the two are combined rather than producing a browser-rejected
+// response at request time.
+type CORSConfig struct {
+	// AllowedOrigins lists the exact origins allowed to make cross-origin
+	// requests, e.g. "https://example.com". "*" allows any origin, but
+	// only when AllowCredentials is false.
+	AllowedOrigins []string
+
+	// AllowedMethods sets Access-Control-Allow-Methods on a preflight
+	// response. Defaults to gwt's six verb methods (GET, POST, PUT,
+	// PATCH, DELETE, OPTIONS) if empty.
+	AllowedMethods []string
+
+	// AllowedHeaders sets Access-Control-Allow-Headers on a preflight
+	// response. If empty, the preflight's own Access-Control-Request-Headers
+	// value is reflected back verbatim — a standard, low-risk default.
+	// Note: if you set this explicitly and also use App.CSRF, include
+	// "X-CSRF-Token" here, or every cross-origin CSRF-protected write will
+	// fail as a browser-side CORS rejection rather than a CSRF 403.
+	AllowedHeaders []string
+
+	// ExposedHeaders sets Access-Control-Expose-Headers on actual (non-
+	// preflight) responses, letting client script read headers beyond the
+	// small CORS-safelisted set.
+	ExposedHeaders []string
+
+	// AllowCredentials sets Access-Control-Allow-Credentials: true, and
+	// forbids "*" in AllowedOrigins (see AllowedOrigins).
+	AllowCredentials bool
+
+	// MaxAge sets Access-Control-Max-Age on a preflight response, telling
+	// the browser how long it may cache the preflight result. Rendered as
+	// whole seconds; zero omits the header.
+	MaxAge time.Duration
+}
+
+// CORS returns a Middleware implementing Cross-Origin Resource Sharing.
+// CORS is a browser-enforced restriction, not a server-side gate: a
+// request from a disallowed origin is still served normally (the browser
+// withholds the response from the requesting script), and a preflight
+// request is always answered, allowed or not — CORS never rejects a
+// request with an error status itself.
+//
+// CORS must be wired via Use (so it wraps the whole built handler) rather
+// than as route-level middleware, since a preflight OPTIONS request never
+// reaches route dispatch — see the note on preflight handling below.
+//
+// App.CORS panics immediately, before returning the Middleware, if
+// cfg.AllowCredentials is true and cfg.AllowedOrigins contains "*" — a
+// combination CORS itself forbids. This is a construction-time
+// misconfiguration, not a per-request condition, so it fails at setup
+// rather than being silently unenforceable at runtime.
+func (a *App) CORS(cfg CORSConfig) Middleware {
+	wildcard := false
+	for _, o := range cfg.AllowedOrigins {
+		if o == "*" {
+			wildcard = true
+			break
+		}
+	}
+	if wildcard && cfg.AllowCredentials {
+		panic("gwt: CORSConfig.AllowCredentials cannot be combined with a wildcard (\"*\") AllowedOrigins entry")
+	}
+
+	methods := cfg.AllowedMethods
+	if len(methods) == 0 {
+		methods = defaultCORSMethods
+	}
+	allowMethods := strings.Join(methods, ", ")
+	allowHeaders := strings.Join(cfg.AllowedHeaders, ", ")
+	exposeHeaders := strings.Join(cfg.ExposedHeaders, ", ")
+	maxAge := ""
+	if cfg.MaxAge > 0 {
+		maxAge = strconv.Itoa(int(cfg.MaxAge.Seconds()))
+	}
+
+	allowedOrigin := func(origin string) (value string, ok bool) {
+		if origin == "" {
+			return "", false
+		}
+		if wildcard && !cfg.AllowCredentials {
+			return "*", true
+		}
+		for _, o := range cfg.AllowedOrigins {
+			if o == origin {
+				return origin, true
+			}
+		}
+		return "", false
+	}
+
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			origin := r.Header.Get("Origin")
+			if origin == "" {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			preflight := r.Method == http.MethodOptions &&
+				r.Header.Get("Access-Control-Request-Method") != ""
+
+			value, ok := allowedOrigin(origin)
+
+			if preflight {
+				h := w.Header()
+				h.Add("Vary", "Origin")
+				h.Add("Vary", "Access-Control-Request-Method")
+				h.Add("Vary", "Access-Control-Request-Headers")
+				if ok {
+					h.Set("Access-Control-Allow-Origin", value)
+					if cfg.AllowCredentials {
+						h.Set("Access-Control-Allow-Credentials", "true")
+					}
+					h.Set("Access-Control-Allow-Methods", allowMethods)
+					if allowHeaders != "" {
+						h.Set("Access-Control-Allow-Headers", allowHeaders)
+					} else if reqHeaders := r.Header.Get("Access-Control-Request-Headers"); reqHeaders != "" {
+						h.Set("Access-Control-Allow-Headers", reqHeaders)
+					}
+					if maxAge != "" {
+						h.Set("Access-Control-Max-Age", maxAge)
+					}
+				}
+				// A preflight is always answered here, allowed or not — it
+				// never reaches next, since there is no route to preflight
+				// against and the mux would otherwise answer with its own
+				// 404/405.
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+
+			if !ok {
+				// Not a preflight and the origin isn't allowed: CORS is
+				// enforced by the browser, not the server, so the request
+				// still runs normally. The absence of the Allow-Origin
+				// header is itself origin-dependent, so Vary still applies.
+				w.Header().Add("Vary", "Origin")
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			h := w.Header()
+			h.Set("Access-Control-Allow-Origin", value)
+			if cfg.AllowCredentials {
+				h.Set("Access-Control-Allow-Credentials", "true")
+			}
+			if exposeHeaders != "" {
+				h.Set("Access-Control-Expose-Headers", exposeHeaders)
+			}
+			if value != "*" {
+				// A "*" response is identical regardless of origin, so no
+				// Vary is needed; an echoed single-origin response is
+				// origin-dependent and must be, or a shared cache could
+				// serve one origin's response to another.
+				h.Add("Vary", "Origin")
+			}
 			next.ServeHTTP(w, r)
 		})
 	}

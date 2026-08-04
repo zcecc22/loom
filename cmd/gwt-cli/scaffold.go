@@ -21,10 +21,11 @@ var templatesFS embed.FS
 // scaffoldData is the template data available to every .in file during
 // generation.
 type scaffoldData struct {
-	Name      string // project directory / binary / image name
-	Module    string // Go module path for the new project
-	Port      int    // port the generated app listens on
-	GwtModule string // this toolkit's module path, for the go.mod require/import lines
+	Name       string // project directory / binary / image name
+	Module     string // Go module path for the new project
+	Port       int    // port the generated app listens on
+	GwtModule  string // this toolkit's module path, for the go.mod require/import lines
+	CSRFSecret string // generated fresh per project, baked in as main.go's dev-only CSRF fallback
 }
 
 // manifestEntry describes one file to emit. SrcPath is relative to

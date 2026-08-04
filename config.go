@@ -90,8 +90,10 @@ func resolveServerConfig(c, base ServerConfig) ServerConfig {
 // ":8000"), ENV (default "dev"), READ_TIMEOUT (default 5s),
 // READ_HEADER_TIMEOUT (default 2s), WRITE_TIMEOUT (default 10s),
 // IDLE_TIMEOUT (default 120s), and SHUTDOWN_TIMEOUT (default 10s). A
-// malformed *_TIMEOUT value fails fast, naming the offending variable.
-func LoadServerConfig() (ServerConfig, error) {
+// malformed *_TIMEOUT value panics, naming the offending variable — a
+// construction-time misconfiguration, not a per-request condition, so it
+// fails loudly at setup rather than being swallowed into a runtime error.
+func LoadServerConfig() ServerConfig {
 	cfg := defaultServerConfig()
 
 	if v := os.Getenv("ADDR"); v != "" {
@@ -101,37 +103,25 @@ func LoadServerConfig() (ServerConfig, error) {
 		cfg.Env = v
 	}
 
-	var err error
-	if cfg.ReadTimeout, err = durationEnv("READ_TIMEOUT", cfg.ReadTimeout); err != nil {
-		return ServerConfig{}, err
-	}
-	if cfg.ReadHeaderTimeout, err = durationEnv("READ_HEADER_TIMEOUT", cfg.ReadHeaderTimeout); err != nil {
-		return ServerConfig{}, err
-	}
-	if cfg.WriteTimeout, err = durationEnv("WRITE_TIMEOUT", cfg.WriteTimeout); err != nil {
-		return ServerConfig{}, err
-	}
-	if cfg.IdleTimeout, err = durationEnv("IDLE_TIMEOUT", cfg.IdleTimeout); err != nil {
-		return ServerConfig{}, err
-	}
-	if cfg.ShutdownTimeout, err = durationEnv("SHUTDOWN_TIMEOUT", cfg.ShutdownTimeout); err != nil {
-		return ServerConfig{}, err
-	}
+	cfg.ReadTimeout = durationEnv("READ_TIMEOUT", cfg.ReadTimeout)
+	cfg.ReadHeaderTimeout = durationEnv("READ_HEADER_TIMEOUT", cfg.ReadHeaderTimeout)
+	cfg.WriteTimeout = durationEnv("WRITE_TIMEOUT", cfg.WriteTimeout)
+	cfg.IdleTimeout = durationEnv("IDLE_TIMEOUT", cfg.IdleTimeout)
+	cfg.ShutdownTimeout = durationEnv("SHUTDOWN_TIMEOUT", cfg.ShutdownTimeout)
 
-	return cfg, nil
+	return cfg
 }
 
 // durationEnv reads key from the environment as a time.Duration, returning
-// fallback if key is unset. A set-but-unparsable value is a fail-fast error
-// naming key.
-func durationEnv(key string, fallback time.Duration) (time.Duration, error) {
+// fallback if key is unset. A set-but-unparsable value panics, naming key.
+func durationEnv(key string, fallback time.Duration) time.Duration {
 	v := os.Getenv(key)
 	if v == "" {
-		return fallback, nil
+		return fallback
 	}
 	d, err := time.ParseDuration(v)
 	if err != nil {
-		return 0, fmt.Errorf("gwt: invalid %s: %w", key, err)
+		panic(fmt.Sprintf("gwt: invalid %s: %v", key, err))
 	}
-	return d, nil
+	return d
 }

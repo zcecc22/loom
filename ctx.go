@@ -130,6 +130,15 @@ func (c *Ctx) Identity() (identity string, ok bool) {
 	return Identity(c.R)
 }
 
+// CSRFToken returns the current valid CSRF token an App.CSRF middleware
+// set for this request, and whether one was set. Embed it in a hidden
+// form field or a meta tag so a subsequent unsafe request can echo it
+// back. It is the handler-side equivalent of the package-level CSRFToken
+// function.
+func (c *Ctx) CSRFToken() (token string, ok bool) {
+	return CSRFToken(c.R)
+}
+
 // Logger returns the App's logger.
 func (c *Ctx) Logger() *slog.Logger {
 	return c.app.logger

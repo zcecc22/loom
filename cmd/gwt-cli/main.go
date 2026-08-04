@@ -3,6 +3,8 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"flag"
 	"fmt"
 	"os"
@@ -65,10 +67,11 @@ func runNew(args []string) error {
 	}
 
 	data := scaffoldData{
-		Name:      name,
-		Module:    mod,
-		Port:      *port,
-		GwtModule: gwtModulePath,
+		Name:       name,
+		Module:     mod,
+		Port:       *port,
+		GwtModule:  gwtModulePath,
+		CSRFSecret: generateDevCSRFSecret(),
 	}
 
 	if err := scaffold(name, data, *force); err != nil {
@@ -80,4 +83,17 @@ func runNew(args []string) error {
 	fmt.Println("  go mod tidy")
 	fmt.Println("  go run .")
 	return nil
+}
+
+// generateDevCSRFSecret returns a fresh, base64url-encoded random secret,
+// unique to this scaffold invocation. Baked into the generated main.go as
+// a dev-only CSRF fallback (see main.go.in) — it lets a freshly scaffolded
+// project run CSRF-protected with zero setup, without every gwt-cli new
+// invocation sharing the same literal secret.
+func generateDevCSRFSecret() string {
+	b := make([]byte, 32)
+	// crypto/rand.Read never returns an error and always fills b entirely,
+	// per its documented contract.
+	_, _ = rand.Read(b)
+	return base64.RawURLEncoding.EncodeToString(b)
 }

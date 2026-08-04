@@ -10,16 +10,11 @@
 package main
 
 import (
-	"log"
-
 	gwt "github.com/zcecc22/go-web-toolkit"
 )
 
 func main() {
-	app, err := gwt.New()
-	if err != nil {
-		log.Fatal(err)
-	}
+	app := gwt.New()
 
 	app.GET("/", func(c *gwt.Ctx) error {
 		return c.JSON(200, gwt.H{"hello": "world"})
@@ -74,19 +69,19 @@ go run .
 
 `gwt-cli new <name>` generates a runnable app (`main.go`, `go.mod`) demonstrating the core of the API:
 
-- `app, err := gwt.New()` — no explicit config-loading call; `New` reads `ADDR`/`ENV`/`*_TIMEOUT` from the environment itself
+- `app := gwt.New()` — no explicit config-loading call; `New` reads `ADDR`/`ENV`/`*_TIMEOUT` from the environment itself, panicking on a malformed `*_TIMEOUT`
 - `GET /` — `c.JSON`
-- `GET /page` — `c.HTML` from an embedded template set
+- `GET /page` and `POST /page` — `c.HTML` from an embedded template set, with a form demonstrating the full CSRF round-trip
 - `GET /items/{id}` — returning `c.Error(404, ...)` for anything but `1`
 - `GET /static/*` — `ServeStatic` over an embedded `static/style.css`
-- All three security middlewares: `SecureHeaders`+`MaxBodySize` applied globally, `HSTS` gated on `ENV=prod`
+- All five security middlewares: `SecureHeaders`+`MaxBodySize` applied globally, `HSTS` gated on `ENV=prod`, `CORS` wired when `ALLOWED_ORIGINS` is set, `CSRF` wired globally — its secret comes from `CSRF_SECRET` if set, else a fallback generated uniquely for this project at scaffold time (fine for local dev; `ENV=prod` requires a real `CSRF_SECRET` and refuses to start without one)
 
 ...plus a full Docker deployment set:
 
 - **`Dockerfile`** — multi-stage build (`golang:1.26.5` → `alpine:latest`, `CGO_ENABLED=0`); both `templates/` and `static/` are embedded in the binary, so only the binary itself is copied into the runtime image
 - **`docker-compose.yml`** — single service, `env_file: .env`, `restart: unless-stopped`
 - **`update_image`** — local rebuild-and-restart deploy script
-- **`.env.example`** — one line per `ServerConfig` field
+- **`.env.example`** — one line per `ServerConfig` field, plus `ALLOWED_ORIGINS` and `CSRF_SECRET`
 - **`.dockerignore`**
 
 Flags: `-module <path>` (Go module path, default the project name), `-port <num>` (default `8000`), `-force` (overwrite an existing non-empty directory). Flags go before the name:
@@ -130,16 +125,11 @@ This walks through building a small `/items` service from nothing, introducing o
 package main
 
 import (
-	"log"
-
 	gwt "github.com/zcecc22/go-web-toolkit"
 )
 
 func main() {
-	app, err := gwt.New()
-	if err != nil {
-		log.Fatal(err)
-	}
+	app := gwt.New()
 	app.Run()
 }
 ```
@@ -226,7 +216,7 @@ Templates are parsed once at startup, not per request, and `c.HTML` auto-escapes
 app.Use(app.SecureHeaders()) // X-Content-Type-Options, X-Frame-Options, Referrer-Policy
 ```
 
-`SecureHeaders` is opt-in — wire it with `Use` once, right after `New`, and it applies to every route. There's no separate config-loading step to add here: `gwt.New()` back in step 1 already reads `ADDR`, `ENV`, and the `*_TIMEOUT` variables from the environment on its own, failing fast if one is malformed.
+`SecureHeaders` is opt-in — wire it with `Use` once, right after `New`, and it applies to every route. There's no separate config-loading step to add here: `gwt.New()` back in step 1 already reads `ADDR`, `ENV`, and the `*_TIMEOUT` variables from the environment on its own, panicking if one is malformed. `CORS` and `CSRF` are opt-in the same way — see [Security](#security) below.
 
 ### Putting it together
 
@@ -252,10 +242,7 @@ var items = map[string]Item{"1": {Name: "widget"}}
 var templatesFS embed.FS
 
 func main() {
-	app, err := gwt.New()
-	if err != nil {
-		log.Fatal(err)
-	}
+	app := gwt.New()
 
 	if err := app.LoadTemplates(templatesFS, "templates/*.tmpl"); err != nil {
 		log.Fatal(err)
@@ -315,6 +302,7 @@ Every route handler takes a `*Ctx` and returns an `error`. `Ctx` carries the req
 | `c.Context()` | The request's `context.Context` |
 | `c.Value(key)` | Read a value stashed by middleware via `context.WithValue` |
 | `c.Identity()` | The identity set by `Authentication`, and whether one was set |
+| `c.CSRFToken()` | The current CSRF token set by `CSRF`, and whether one was set |
 | `c.Logger()` | The App's `*slog.Logger` |
 
 **Writing the response**
@@ -374,6 +362,7 @@ Client errors (4xx) log at `WARN`, server errors (5xx) at `ERROR`, so a stream o
 | Handler returned an error | `404 {"error":"no such item"}` |
 | Handler panicked | `500 {"error":"Internal Server Error"}` |
 | `Authentication` rejected the request | `401 {"error":"Unauthorized"}` |
+| `CSRF` rejected the request | `403 {"error":"Forbidden"}` |
 | No route matched the path | `404 {"error":"Not Found"}` |
 | Route exists, wrong method | `405 {"error":"Method Not Allowed"}` + `Allow` header |
 
@@ -389,7 +378,7 @@ If you want a different shape, `AppConfig.ErrorHandler` covers handler errors, a
 Override the whole behavior with `AppConfig.ErrorHandler`:
 
 ```go
-app, err := gwt.New(gwt.AppConfig{
+app := gwt.New(gwt.AppConfig{
 	ErrorHandler: func(c *gwt.Ctx, err error) {
 		if c.Written() {
 			return // the handler already responded; don't corrupt it
@@ -404,10 +393,10 @@ That `c.Written()` check matters because `return c.JSON(...)` is the normal idio
 ### Constructing an App
 
 ```go
-func New(cfg ...AppConfig) (*App, error)
+func New(cfg ...AppConfig) *App
 ```
 
-`New` builds a ready `*App` — logged, panic-safe, listening on the default address, with zero further setup. It also loads its server config from the environment itself (`ADDR`, `ENV`, and the `*_TIMEOUT` variables — see Configuration below), which is the only thing that can make it fail: a malformed `*_TIMEOUT` value is a fail-fast error. `cfg` is variadic only so `gwt.New()` with no argument keeps working for the zero-config case — passing more than one `AppConfig` is meaningless and only the first is used.
+`New` builds a ready `*App` — logged, panic-safe, listening on the default address, with zero further setup. It also loads its server config from the environment itself (`ADDR`, `ENV`, and the `*_TIMEOUT` variables — see Configuration below), which is the only thing that can make it panic: a malformed `*_TIMEOUT` value fails fast and loudly, naming the offending variable. `cfg` is variadic only so `gwt.New()` with no argument keeps working for the zero-config case — passing more than one `AppConfig` is meaningless and only the first is used.
 
 There's no functional-options layer here: `AppConfig` is a plain struct. Set the fields you care about, leave the rest zero:
 
@@ -436,16 +425,16 @@ type AppConfig struct {
 Three independent examples (not meant to run together):
 
 ```go
-app, err := gwt.New() // reads ADDR/ENV/*_TIMEOUT from the environment; hardcoded default for anything unset
+app := gwt.New() // reads ADDR/ENV/*_TIMEOUT from the environment; hardcoded default for anything unset
 ```
 
 ```go
 // An explicit Server field wins over whatever the environment set.
-app, err := gwt.New(gwt.AppConfig{Server: gwt.ServerConfig{Addr: ":9000"}})
+app := gwt.New(gwt.AppConfig{Server: gwt.ServerConfig{Addr: ":9000"}})
 ```
 
 ```go
-app, err := gwt.New(gwt.AppConfig{
+app := gwt.New(gwt.AppConfig{
 	Logger: myLogger,
 	OnShutdown: []func(context.Context) error{
 		func(ctx context.Context) error { return db.Close() },
@@ -464,10 +453,10 @@ type ServerConfig struct {
 	IdleTimeout, ShutdownTimeout                 time.Duration
 }
 
-func LoadServerConfig() (ServerConfig, error)
+func LoadServerConfig() ServerConfig
 ```
 
-This is what `New` calls internally on every construction — you don't normally need to call it yourself. `LoadServerConfig` reads from the environment and fails fast (naming the offending variable) if a `*_TIMEOUT` value is set but unparsable:
+This is what `New` calls internally on every construction — you don't normally need to call it yourself. `LoadServerConfig` reads from the environment and panics (naming the offending variable) if a `*_TIMEOUT` value is set but unparsable:
 
 | Env var | Default |
 |---|---|
@@ -482,12 +471,9 @@ This is what `New` calls internally on every construction — you don't normally
 It stays exported for the case where you want the resolved config *before* an `App` exists — e.g. to build your own logger from `cfg.Env` ahead of time, or to log the resolved address before binding it:
 
 ```go
-cfg, err := gwt.LoadServerConfig()
-if err != nil {
-	log.Fatal(err)
-}
+cfg := gwt.LoadServerConfig()
 logger := gwt.NewLogger(cfg.Env)
-app, err := gwt.New(gwt.AppConfig{Server: cfg, Logger: logger})
+app := gwt.New(gwt.AppConfig{Server: cfg, Logger: logger})
 ```
 
 ### Server lifecycle
@@ -547,7 +533,7 @@ Middleware is plain `net/http`, **not** `Ctx`-based. That's deliberate: global m
 **Fixed request-flow order:** `Logging → Recover → Use-added (in call order) → route-level mw → handler`.
 
 ```go
-app, err := gwt.New()
+app := gwt.New()
 app.Use(app.SecureHeaders())
 
 app.GET("/admin", adminHandler, requireRole("admin"))
@@ -630,12 +616,83 @@ All three are opt-in via `Use` (or route-level `mw`) — never automatic, unlike
 `c.Bind` does not limit body size on its own; `MaxBodySize` is the mechanism for that.
 
 ```go
-app, err := gwt.New()
+app := gwt.New()
 app.Use(app.SecureHeaders(), app.MaxBodySize(10<<20)) // 10 MiB
 if os.Getenv("ENV") == "prod" {
 	app.Use(app.HSTS())
 }
 ```
+
+### CORS
+
+```go
+type CORSConfig struct {
+	AllowedOrigins   []string      // exact origins, or "*" (only when AllowCredentials is false)
+	AllowedMethods   []string      // default: the six verb methods
+	AllowedHeaders   []string      // default: reflects the preflight's own requested headers
+	ExposedHeaders   []string
+	AllowCredentials bool
+	MaxAge           time.Duration
+}
+
+app.CORS(cfg CORSConfig) Middleware
+```
+
+`CORS` is browser-enforced, not server-enforced: a request from a disallowed origin is still served normally — the browser withholds the response from the requesting script, gwt never rejects it with an error status. A CORS preflight (`OPTIONS` carrying `Access-Control-Request-Method`) is answered by `CORS` itself, before routing — which is why `CORS` must be wired via `Use`, not as route-level `mw`. A plain `OPTIONS` request without that header isn't a preflight and still reaches a registered `app.OPTIONS(...)` route normally.
+
+`App.CORS` panics at setup if `AllowCredentials` is `true` and `AllowedOrigins` contains `"*"` — CORS itself forbids that combination.
+
+```go
+app.Use(app.CORS(gwt.CORSConfig{
+	AllowedOrigins: []string{"https://example.com"},
+	AllowedHeaders: []string{"X-CSRF-Token"}, // required if you also use CSRF — see below
+	MaxAge:         10 * time.Minute,
+}))
+```
+
+### CSRF
+
+```go
+type CSRFConfig struct {
+	Secret []byte // required — signs the cookie via HMAC-SHA256
+	Secure bool   // gate on e.g. Env == "prod", same convention as HSTS
+}
+
+app.CSRF(cfg CSRFConfig) Middleware
+gwt.CSRFToken(r *http.Request) (token string, ok bool)
+c.CSRFToken() (token string, ok bool)
+```
+
+`CSRF` uses the stateless **double-submit cookie** pattern, so it needs no server-side session store: on a safe request (GET/HEAD/OPTIONS) it issues a signed `csrf_token` cookie (`HttpOnly`, `SameSite=Lax`); on an unsafe one (POST/PUT/PATCH/DELETE/...) it requires the same token back, either via an `X-CSRF-Token` header or — only when the request is form-encoded, so a JSON body is never touched — a `csrf_token` form field. A missing or mismatched token is a **403**; the handler never runs.
+
+`App.CSRF` panics at setup if `Secret` is empty — there's no auto-generated fallback, since a random secret would invalidate every outstanding token on process restart.
+
+`c.CSRFToken()` reads back the current valid token, for embedding in a hidden form field or a meta tag:
+
+```go
+// CSRF_SECRET is required — App.CSRF panics on an empty Secret.
+csrf := app.CSRF(gwt.CSRFConfig{Secret: []byte(os.Getenv("CSRF_SECRET")), Secure: os.Getenv("ENV") == "prod"})
+
+app.GET("/form", func(c *gwt.Ctx) error {
+	token, _ := c.CSRFToken()
+	return c.HTML(200, "form.tmpl", gwt.H{"CSRFToken": token})
+}, csrf)
+
+app.POST("/form", func(c *gwt.Ctx) error {
+	return c.Redirect(303, "/form")
+}, csrf)
+```
+
+```html
+<form method="POST" action="/form">
+	<input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+	...
+</form>
+```
+
+**Wire `CSRF` route-level (as above), not globally via `Use`, in any app that also serves a non-cookie API** — a global `CSRF` would 403 every unsafe-method call to a bearer-token-authenticated JSON endpoint, since there's no CSRF cookie to check. Wire it globally only when every unsafe-method route in the app is a cookie/form-based one.
+
+If you also use `CORS`: `SameSite=Lax` means the CSRF cookie is never sent on a cross-site subrequest, so a credentialed cross-origin write (`CORSConfig.AllowCredentials`) fails at the cookie-never-arrives stage, not the token stage — this `CSRF` targets same-site form/AJAX flows, not credentialed cross-origin APIs. And if `CORSConfig.AllowedHeaders` is set explicitly, it must include `X-CSRF-Token` or a cross-origin CSRF-protected write fails as a CORS rejection instead of a CSRF 403.
 
 ### Authentication
 
@@ -666,7 +723,7 @@ app.GET("/admin", func(c *gwt.Ctx) error {
 
 The package-level `gwt.Identity(r)` does the same thing for code that holds only a request — middleware, or a handler mounted with `HandleHTTP`.
 
-`gwt` doesn't provide a built-in Basic/Bearer/session implementation — `authenticate` is where you plug in whichever scheme you need. This also means `gwt` doesn't issue, sign, or store sessions, and has no CSRF token mechanism; `Authentication` is a building block for that, not a session framework.
+`gwt` doesn't provide a built-in Basic/Bearer/session implementation — `authenticate` is where you plug in whichever scheme you need. This also means `gwt` doesn't issue, sign, or store sessions; `Authentication` is a building block for session-based auth, not a session framework. (CSRF protection itself is a separate, already-built middleware — see [CSRF](#csrf) above — it doesn't need a session store, since it uses the stateless double-submit cookie pattern.)
 
 `Authentication`'s 401 uses the same JSON error shape as every other gwt error — see [Error shape](#error-shape).
 

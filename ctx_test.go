@@ -26,7 +26,7 @@ func serve(t *testing.T, a *App, h Handler, req *http.Request) *httptest.Respons
 }
 
 func TestCtxJSONWritesBodyStatusAndContentType(t *testing.T) {
-	a := mustNew(t, AppConfig{Logger: discardLogger()})
+	a := New(AppConfig{Logger: discardLogger()})
 	rec := serve(t, a, func(c *Ctx) error {
 		return c.JSON(http.StatusCreated, H{"name": "widget"})
 	}, httptest.NewRequest(http.MethodGet, "/t", nil))
@@ -48,7 +48,7 @@ func TestCtxJSONWritesBodyStatusAndContentType(t *testing.T) {
 
 func TestCtxJSONMarshalErrorWritesNothingAndBecomes500(t *testing.T) {
 	var buf bytes.Buffer
-	a := mustNew(t, AppConfig{Logger: jsonLogger(&buf)})
+	a := New(AppConfig{Logger: jsonLogger(&buf)})
 	// A channel value cannot be marshaled to JSON. Nothing must reach the
 	// response before the failure is known, so the error handler gets a
 	// clean writer to render a 500 onto.
@@ -68,7 +68,7 @@ func TestCtxJSONMarshalErrorWritesNothingAndBecomes500(t *testing.T) {
 }
 
 func TestCtxStringAndStringf(t *testing.T) {
-	a := mustNew(t, AppConfig{Logger: discardLogger()})
+	a := New(AppConfig{Logger: discardLogger()})
 	rec := serve(t, a, func(c *Ctx) error {
 		return c.Stringf(http.StatusOK, "hello, %s", "world")
 	}, httptest.NewRequest(http.MethodGet, "/t", nil))
@@ -85,7 +85,7 @@ func TestCtxStringAndStringf(t *testing.T) {
 
 	// String writes literally, so a stray % in user-supplied text can't
 	// turn into a format verb.
-	b := mustNew(t, AppConfig{Logger: discardLogger()})
+	b := New(AppConfig{Logger: discardLogger()})
 	rec2 := serve(t, b, func(c *Ctx) error {
 		return c.String(http.StatusOK, "100% done")
 	}, httptest.NewRequest(http.MethodGet, "/t", nil))
@@ -96,7 +96,7 @@ func TestCtxStringAndStringf(t *testing.T) {
 
 func TestCtxHTMLEscapesXSS(t *testing.T) {
 	dir := templateDirFS(t, map[string]string{"page.tmpl": `<p>{{.Name}}</p>`})
-	a := mustNew(t, AppConfig{Logger: discardLogger()})
+	a := New(AppConfig{Logger: discardLogger()})
 	if err := a.LoadTemplates(os.DirFS(dir)); err != nil {
 		t.Fatalf("LoadTemplates: %v", err)
 	}
@@ -123,7 +123,7 @@ func TestCtxHTMLExecuteErrorWritesNothingThen500(t *testing.T) {
 	// when it fails — no partial body ahead of the 500.
 	dir := templateDirFS(t, map[string]string{"bad.tmpl": `prefix {{.Missing.Field}}`})
 	var buf bytes.Buffer
-	a := mustNew(t, AppConfig{Logger: jsonLogger(&buf)})
+	a := New(AppConfig{Logger: jsonLogger(&buf)})
 	if err := a.LoadTemplates(os.DirFS(dir)); err != nil {
 		t.Fatalf("LoadTemplates: %v", err)
 	}
@@ -144,7 +144,7 @@ func TestCtxHTMLWithNoTemplatesLoadedIsCleanError(t *testing.T) {
 	// No LoadTemplates call and no AppConfig.Templates: rendering must
 	// report a clear error rather than dereferencing a nil template set.
 	var buf bytes.Buffer
-	a := mustNew(t, AppConfig{Logger: jsonLogger(&buf)})
+	a := New(AppConfig{Logger: jsonLogger(&buf)})
 
 	rec := serve(t, a, func(c *Ctx) error {
 		return c.HTML(http.StatusOK, "index.tmpl", nil)
@@ -160,7 +160,7 @@ func TestCtxHTMLWithNoTemplatesLoadedIsCleanError(t *testing.T) {
 
 func TestCtxHTMLUnknownTemplateNameIsError(t *testing.T) {
 	dir := templateDirFS(t, map[string]string{"page.tmpl": `<p>ok</p>`})
-	a := mustNew(t, AppConfig{Logger: discardLogger()})
+	a := New(AppConfig{Logger: discardLogger()})
 	if err := a.LoadTemplates(os.DirFS(dir)); err != nil {
 		t.Fatalf("LoadTemplates: %v", err)
 	}
@@ -175,7 +175,7 @@ func TestCtxHTMLUnknownTemplateNameIsError(t *testing.T) {
 }
 
 func TestCtxNoContentAndRedirect(t *testing.T) {
-	a := mustNew(t, AppConfig{Logger: discardLogger()})
+	a := New(AppConfig{Logger: discardLogger()})
 	rec := serve(t, a, func(c *Ctx) error {
 		return c.NoContent(http.StatusNoContent)
 	}, httptest.NewRequest(http.MethodGet, "/t", nil))
@@ -187,7 +187,7 @@ func TestCtxNoContentAndRedirect(t *testing.T) {
 		t.Fatalf("NoContent wrote a body: %q", rec.Body.String())
 	}
 
-	b := mustNew(t, AppConfig{Logger: discardLogger()})
+	b := New(AppConfig{Logger: discardLogger()})
 	rec2 := serve(t, b, func(c *Ctx) error {
 		return c.Redirect(http.StatusFound, "/elsewhere")
 	}, httptest.NewRequest(http.MethodGet, "/t", nil))
@@ -201,7 +201,7 @@ func TestCtxNoContentAndRedirect(t *testing.T) {
 }
 
 func TestCtxRequestHelpers(t *testing.T) {
-	a := mustNew(t, AppConfig{Logger: discardLogger()})
+	a := New(AppConfig{Logger: discardLogger()})
 	var gotID, gotQuery, gotDefault, gotHeader string
 
 	a.GET("/items/{id}", func(c *Ctx) error {
@@ -231,7 +231,7 @@ func TestCtxRequestHelpers(t *testing.T) {
 }
 
 func TestCtxQueryDefaultPrefersPresentValue(t *testing.T) {
-	a := mustNew(t, AppConfig{Logger: discardLogger()})
+	a := New(AppConfig{Logger: discardLogger()})
 	var got string
 	serve(t, a, func(c *Ctx) error {
 		got = c.QueryDefault("format", "fallback")
@@ -244,7 +244,7 @@ func TestCtxQueryDefaultPrefersPresentValue(t *testing.T) {
 }
 
 func TestCtxFormValueReadsBodyAndQuery(t *testing.T) {
-	a := mustNew(t, AppConfig{Logger: discardLogger()})
+	a := New(AppConfig{Logger: discardLogger()})
 	var fromBody, fromQuery, missing string
 
 	a.POST("/t", func(c *Ctx) error {
@@ -272,7 +272,7 @@ func TestCtxFormValueReadsBodyAndQuery(t *testing.T) {
 }
 
 func TestCtxBindDecodesJSON(t *testing.T) {
-	a := mustNew(t, AppConfig{Logger: discardLogger()})
+	a := New(AppConfig{Logger: discardLogger()})
 	type item struct {
 		Name string `json:"name"`
 	}
@@ -294,7 +294,7 @@ func TestCtxBindDecodesJSON(t *testing.T) {
 }
 
 func TestCtxBindMalformedBodyIs400NotA500(t *testing.T) {
-	a := mustNew(t, AppConfig{Logger: discardLogger()})
+	a := New(AppConfig{Logger: discardLogger()})
 	rec := serve(t, a, func(c *Ctx) error {
 		var v struct{ Name string }
 		if err := c.Bind(&v); err != nil {
@@ -315,7 +315,7 @@ func TestCtxValueReadsForeignContextKeys(t *testing.T) {
 	// Middleware written against plain net/http stashes values under its
 	// own key type; Ctx.Value must be able to read them back.
 	type foreignKey struct{}
-	a := mustNew(t, AppConfig{Logger: discardLogger()})
+	a := New(AppConfig{Logger: discardLogger()})
 
 	var got any
 	a.GET("/t", func(c *Ctx) error {
@@ -335,7 +335,7 @@ func TestCtxValueReadsForeignContextKeys(t *testing.T) {
 }
 
 func TestCtxIdentityMatchesPackageIdentity(t *testing.T) {
-	a := mustNew(t, AppConfig{Logger: discardLogger()})
+	a := New(AppConfig{Logger: discardLogger()})
 	var viaCtx, viaFunc string
 	var okCtx bool
 
@@ -357,7 +357,7 @@ func TestCtxIdentityMatchesPackageIdentity(t *testing.T) {
 
 func TestCtxSetHeaderAndLogger(t *testing.T) {
 	logger := discardLogger()
-	a := mustNew(t, AppConfig{Logger: logger})
+	a := New(AppConfig{Logger: logger})
 
 	var sameLogger bool
 	rec := serve(t, a, func(c *Ctx) error {
@@ -375,7 +375,7 @@ func TestCtxSetHeaderAndLogger(t *testing.T) {
 }
 
 func TestCtxWrittenReportsCommitState(t *testing.T) {
-	a := mustNew(t, AppConfig{Logger: discardLogger()})
+	a := New(AppConfig{Logger: discardLogger()})
 	var before, after bool
 
 	serve(t, a, func(c *Ctx) error {
@@ -399,7 +399,7 @@ func TestCtxWrittenReportsCommitState(t *testing.T) {
 // is unreachable in every gwt app — which is what silently broke SSE and
 // WebSocket upgrades before these were added.
 func TestLoggingForwardsOptionalInterfaces(t *testing.T) {
-	a := mustNew(t, AppConfig{Logger: discardLogger()})
+	a := New(AppConfig{Logger: discardLogger()})
 
 	var isFlusher, isHijacker, isReaderFrom, unwrapped bool
 	a.GET("/t", func(c *Ctx) error {
@@ -425,7 +425,7 @@ func TestLoggingForwardsOptionalInterfaces(t *testing.T) {
 }
 
 func TestLoggingFlushReachesUnderlyingWriter(t *testing.T) {
-	a := mustNew(t, AppConfig{Logger: discardLogger()})
+	a := New(AppConfig{Logger: discardLogger()})
 	a.GET("/t", func(c *Ctx) error {
 		if err := c.String(http.StatusOK, "chunk"); err != nil {
 			return err
@@ -449,7 +449,7 @@ func TestLoggingFlushReachesUnderlyingWriter(t *testing.T) {
 func TestLoggingHijackDelegatesAndReportsUnsupported(t *testing.T) {
 	// Over a plain recorder there is no connection to hijack, so the
 	// stdlib sentinel is the correct answer — not a panic.
-	a := mustNew(t, AppConfig{Logger: discardLogger()})
+	a := New(AppConfig{Logger: discardLogger()})
 	var unsupportedErr error
 	a.GET("/t", func(c *Ctx) error {
 		_, _, unsupportedErr = c.W.(http.Hijacker).Hijack()
@@ -462,7 +462,7 @@ func TestLoggingHijackDelegatesAndReportsUnsupported(t *testing.T) {
 	}
 
 	// Over a writer that does support it, the call must be delegated.
-	b := mustNew(t, AppConfig{Logger: discardLogger()})
+	b := New(AppConfig{Logger: discardLogger()})
 	var delegatedErr error
 	b.GET("/t", func(c *Ctx) error {
 		_, _, delegatedErr = c.W.(http.Hijacker).Hijack()

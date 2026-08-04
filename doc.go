@@ -7,13 +7,10 @@
 //
 // A minimal application — New alone is logged and panic-safe, no further
 // setup required. It also loads its server config from the environment
-// itself (ADDR, ENV, the *_TIMEOUT variables), which is the only thing
-// that can make it fail:
+// itself (ADDR, ENV, the *_TIMEOUT variables); a malformed *_TIMEOUT is the
+// only thing that can make it panic:
 //
-//	app, err := gwt.New()
-//	if err != nil {
-//		log.Fatal(err)
-//	}
+//	app := gwt.New()
 //	app.GET("/", func(c *gwt.Ctx) error {
 //		return c.JSON(200, gwt.H{"hello": "world"})
 //	})
@@ -43,9 +40,9 @@
 //
 // Every error gwt itself generates renders the same way — a JSON body of
 // the form {"error":"<message>"} — whether it came from a handler, a
-// panic, an Authentication rejection, or the router finding no route. The two
-// exceptions are handlers mounted with HandleHTTP and ServeStatic, which
-// own their own responses; see HandleHTTP.
+// panic, an Authentication or CSRF rejection, or the router finding no
+// route. The two exceptions are handlers mounted with HandleHTTP and
+// ServeStatic, which own their own responses; see HandleHTTP.
 //
 // # Middleware
 //
@@ -53,5 +50,5 @@
 // anything written for the stdlib composes with gwt directly. Pass it to
 // Use for the whole app, or as trailing arguments to a route for just that
 // route. Logging and Recover are always on; SecureHeaders, MaxBodySize,
-// HSTS, and Authentication are opt-in.
+// HSTS, CORS, CSRF, and Authentication are opt-in.
 package gwt

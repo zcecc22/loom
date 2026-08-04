@@ -3,9 +3,9 @@ package main
 import (
 	"embed"
 	"io/fs"
-	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 
 	gwt "{{.GwtModule}}"
 )
@@ -22,14 +22,16 @@ var templatesFS embed.FS
 //go:embed static
 var staticFS embed.FS
 
+// devCSRFSecret was generated uniquely for this project when it was
+// scaffolded (`gwt-cli new`) — see the CSRF wiring below for why it exists
+// and its limits.
+const devCSRFSecret = "{{.CSRFSecret}}"
+
 func main() {
 	// New loads ADDR/ENV/*_TIMEOUT from the environment itself — see
-	// .env.example for what it reads.
-	app, err := gwt.New()
-	if err != nil {
-		slog.Error("gwt: invalid config", "err", err)
-		os.Exit(1)
-	}
+	// .env.example for what it reads. A malformed *_TIMEOUT panics,
+	// naming the offending variable.
+	app := gwt.New()
 
 	if err := app.LoadTemplates(templatesFS, "templates/*.tmpl"); err != nil {
 		app.Logger().Error("gwt: loading templates", "err", err)
@@ -45,12 +47,54 @@ func main() {
 		app.Use(app.HSTS())
 	}
 
+	// CORS is only wired if ALLOWED_ORIGINS is set — an empty value means
+	// this app is only ever called same-origin, the common case for local
+	// dev, so there's nothing to configure out of the box.
+	if origins := os.Getenv("ALLOWED_ORIGINS"); origins != "" {
+		var allowed []string
+		for _, o := range strings.Split(origins, ",") {
+			if o = strings.TrimSpace(o); o != "" {
+				allowed = append(allowed, o)
+			}
+		}
+		app.Use(app.CORS(gwt.CORSConfig{AllowedOrigins: allowed}))
+	}
+
+	// CSRF requires a signing secret with no safe default. devCSRFSecret
+	// was generated uniquely for this project by `gwt-cli new` (not shared
+	// with any other scaffolded app), so the app runs CSRF-protected out of
+	// the box for local dev with no setup — but it's baked into source, so
+	// it's not fit for a real deployment: ENV=prod requires a real
+	// CSRF_SECRET and fails fast at startup without one.
+	secret := os.Getenv("CSRF_SECRET")
+	if secret == "" {
+		if os.Getenv("ENV") == "prod" {
+			app.Logger().Error("gwt: CSRF_SECRET is not set — see .env.example")
+			os.Exit(1)
+		}
+		secret = devCSRFSecret
+	}
+	app.Use(app.CSRF(gwt.CSRFConfig{
+		Secret: []byte(secret),
+		Secure: os.Getenv("ENV") == "prod",
+	}))
+
 	app.GET("/", func(c *gwt.Ctx) error {
 		return c.JSON(http.StatusOK, gwt.H{"hello": "{{.Name}}"})
 	})
 
 	app.GET("/page", func(c *gwt.Ctx) error {
-		return c.HTML(http.StatusOK, "index.tmpl", gwt.H{"Name": "{{.Name}}"})
+		token, _ := c.CSRFToken()
+		return c.HTML(http.StatusOK, "index.tmpl", gwt.H{"Name": "{{.Name}}", "CSRFToken": token, "Message": ""})
+	})
+
+	// Demonstrates the CSRF round-trip end to end: the form on /page embeds
+	// the token GET rendered, and this handler is protected automatically
+	// since CSRF is wired globally via Use.
+	app.POST("/page", func(c *gwt.Ctx) error {
+		token, _ := c.CSRFToken()
+		message := c.FormValue("message")
+		return c.HTML(http.StatusOK, "index.tmpl", gwt.H{"Name": "{{.Name}}", "CSRFToken": token, "Message": message})
 	})
 
 	// fs.Sub strips the "static/" prefix go:embed leaves in staticFS's
