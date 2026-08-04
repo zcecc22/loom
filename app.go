@@ -1,4 +1,4 @@
-package gwt
+package loom
 
 import (
 	"context"
@@ -9,7 +9,7 @@ import (
 	"sync"
 )
 
-// App is a gwt application: a stdlib http.ServeMux plus global middleware,
+// App is a loom application: a stdlib http.ServeMux plus global middleware,
 // configuration, a logger, a template set, and lifecycle hooks. App
 // implements http.Handler, so it can be passed directly to
 // httptest.NewServer or nested inside another handler.

@@ -1,4 +1,4 @@
-package gwt
+package loom
 
 import (
 	"fmt"
@@ -121,7 +121,7 @@ func durationEnv(key string, fallback time.Duration) time.Duration {
 	}
 	d, err := time.ParseDuration(v)
 	if err != nil {
-		panic(fmt.Sprintf("gwt: invalid %s: %v", key, err))
+		panic(fmt.Sprintf("loom: invalid %s: %v", key, err))
 	}
 	return d
 }

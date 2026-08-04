@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 
-	gwt "github.com/zcecc22/go-web-toolkit"
+	"github.com/zcecc22/loom"
 )
 
 // Example demonstrates the App built by newApp (the same construction
@@ -15,8 +15,8 @@ import (
 // route set, not exhaustive — the library's own test suite covers each
 // construct's edge cases in depth.
 func Example() {
-	logger := gwt.NewLogger("dev")
-	app, err := newApp(gwt.ServerConfig{Env: "dev"}, logger)
+	logger := loom.NewLogger("dev")
+	app, err := newApp(loom.ServerConfig{Env: "dev"}, logger)
 	if err != nil {
 		fmt.Println("setup failed:", err)
 		return

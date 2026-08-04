@@ -1,4 +1,4 @@
-package gwt
+package loom
 
 import "net/http"
 
@@ -58,7 +58,7 @@ func (a *App) Handle(method, pattern string, h Handler, mw ...Middleware) {
 
 // muxErrorsAsJSON wraps the mux so the error responses it generates itself
 // — the plain-text "404 page not found" and "Method Not Allowed" — come out
-// in gwt's JSON error shape like everything else. Handler installs it as
+// in loom's JSON error shape like everything else. Handler installs it as
 // the innermost global wrapper, so Logging still reports the real status
 // and Recover still covers it.
 //
@@ -82,7 +82,7 @@ func (a *App) muxErrorsAsJSON(next http.Handler) http.Handler {
 }
 
 // notFoundWriter replaces the body of any error response written through it
-// with gwt's JSON error shape. Only the mux's own responses reach it —
+// with loom's JSON error shape. Only the mux's own responses reach it —
 // registered routes unwrap it first — so it never second-guesses a
 // handler's output.
 //
@@ -126,7 +126,7 @@ func (n *notFoundWriter) WriteHeader(status int) {
 	// and swallow the plain-text one that follows.
 	n.rewriting = true
 	if err := writeJSONError(n.ResponseWriter, status, statusMessage(status)); err != nil {
-		n.app.logger.Error("gwt: write error response failed", "err", err, "method", n.req.Method, "path", n.req.URL.Path)
+		n.app.logger.Error("loom: write error response failed", "err", err, "method", n.req.Method, "path", n.req.URL.Path)
 	}
 }
 

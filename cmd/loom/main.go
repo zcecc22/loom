@@ -1,4 +1,4 @@
-// Command gwt-cli scaffolds new gwt projects. See CLAUDE.md's "cmd/gwt-cli"
+// Command loom scaffolds new loom projects. See CLAUDE.md's "cmd/loom"
 // section for the full list of files it generates.
 package main
 
@@ -10,9 +10,9 @@ import (
 	"os"
 )
 
-// gwtModulePath is this toolkit's own module path, used as the import and
+// loomModulePath is this toolkit's own module path, used as the import and
 // go.mod require path in generated projects.
-const gwtModulePath = "github.com/zcecc22/go-web-toolkit"
+const loomModulePath = "github.com/zcecc22/loom"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -23,23 +23,23 @@ func main() {
 	switch os.Args[1] {
 	case "new":
 		if err := runNew(os.Args[2:]); err != nil {
-			fmt.Fprintln(os.Stderr, "gwt-cli:", err)
+			fmt.Fprintln(os.Stderr, "loom:", err)
 			os.Exit(1)
 		}
 	case "-h", "--help", "help":
 		usage()
 	default:
-		fmt.Fprintf(os.Stderr, "gwt-cli: unknown command %q\n\n", os.Args[1])
+		fmt.Fprintf(os.Stderr, "loom: unknown command %q\n\n", os.Args[1])
 		usage()
 		os.Exit(2)
 	}
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, `gwt-cli — gwt project scaffolder
+	fmt.Fprintln(os.Stderr, `loom — loom project scaffolder
 
 Usage:
-  gwt-cli new <name> [-module <path>] [-port <num>] [-force]
+  loom new <name> [-module <path>] [-port <num>] [-force]
 
 Flags:
   -module string   Go module path for the new project (default "<name>")
@@ -70,7 +70,7 @@ func runNew(args []string) error {
 		Name:       name,
 		Module:     mod,
 		Port:       *port,
-		GwtModule:  gwtModulePath,
+		LoomModule: loomModulePath,
 		CSRFSecret: generateDevCSRFSecret(),
 	}
 
@@ -78,7 +78,7 @@ func runNew(args []string) error {
 		return err
 	}
 
-	fmt.Printf("gwt-cli: created %s\n", name)
+	fmt.Printf("loom: created %s\n", name)
 	fmt.Printf("  cd %s\n", name)
 	fmt.Println("  go mod tidy")
 	fmt.Println("  go run .")
@@ -88,7 +88,7 @@ func runNew(args []string) error {
 // generateDevCSRFSecret returns a fresh, base64url-encoded random secret,
 // unique to this scaffold invocation. Baked into the generated main.go as
 // a dev-only CSRF fallback (see main.go.in) — it lets a freshly scaffolded
-// project run CSRF-protected with zero setup, without every gwt-cli new
+// project run CSRF-protected with zero setup, without every loom new
 // invocation sharing the same literal secret.
 func generateDevCSRFSecret() string {
 	b := make([]byte, 32)

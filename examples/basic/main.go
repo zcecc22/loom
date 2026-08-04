@@ -1,4 +1,4 @@
-// Command basic is a single-file tour of every construct gwt provides:
+// Command basic is a single-file tour of every construct loom provides:
 // config loading (LoadServerConfig, NewLogger), full construction (AppConfig —
 // Server, Logger, Templates, ErrorHandler, OnStart, OnShutdown,
 // BaseContext), all six routing verbs plus the generic Handle and the
@@ -12,7 +12,7 @@
 // (Ctx.CSRFToken), and both startup patterns (Run, and Handler embedded in
 // your own *http.Server or mux).
 //
-// See cmd/gwt-cli for the canonical scaffolded-project template with
+// See cmd/loom for the canonical scaffolded-project template with
 // Docker deployment output; this file is a broader single-file API tour
 // and is not shaped for scaffold-template reuse.
 package main
@@ -27,7 +27,7 @@ import (
 	"os"
 	"time"
 
-	gwt "github.com/zcecc22/go-web-toolkit"
+	"github.com/zcecc22/loom"
 )
 
 // templatesFS embeds the template set, so the binary renders correctly no
@@ -46,13 +46,13 @@ type Item struct {
 // errNoSuchItem stands in for whatever a real storage layer would return.
 var errNoSuchItem = errors.New("no such item")
 
-func newApp(cfg gwt.ServerConfig, logger *slog.Logger) (*gwt.App, error) {
+func newApp(cfg loom.ServerConfig, logger *slog.Logger) (*loom.App, error) {
 	// cfg is passed in explicitly here (built from LoadServerConfig in
 	// main, below) so the logger built from cfg.Env exists before the App
 	// does. New would already load the same environment on its own if cfg
 	// were left zero — passing it through here just makes that resolved
 	// value and this function's logger agree.
-	app := gwt.New(gwt.AppConfig{
+	app := loom.New(loom.AppConfig{
 		Server: cfg,
 		Logger: logger,
 		OnStart: []func(context.Context) error{
@@ -99,7 +99,7 @@ func newApp(cfg gwt.ServerConfig, logger *slog.Logger) (*gwt.App, error) {
 	// the browser's script read it. AllowedOrigins is an exact-match list —
 	// "*" is also accepted, but only when AllowCredentials is false; App.CORS
 	// panics at setup if the two are combined.
-	app.Use(app.CORS(gwt.CORSConfig{
+	app.Use(app.CORS(loom.CORSConfig{
 		AllowedOrigins: []string{"https://example.com"},
 		AllowedHeaders: []string{"X-CSRF-Token"}, // see the CSRF section below
 		MaxAge:         10 * time.Minute,
@@ -119,7 +119,7 @@ func newApp(cfg gwt.ServerConfig, logger *slog.Logger) (*gwt.App, error) {
 	// cookie-based and has no CSRF cookie to check — wiring CSRF globally
 	// would 403 every one of those calls for no security benefit.
 	csrfSecret := envOrDefault("CSRF_SECRET", "demo-only-secret-do-not-use-in-prod")
-	csrf := app.CSRF(gwt.CSRFConfig{
+	csrf := app.CSRF(loom.CSRFConfig{
 		Secret: []byte(csrfSecret),
 		Secure: cfg.Env == "prod",
 	})
@@ -127,23 +127,23 @@ func newApp(cfg gwt.ServerConfig, logger *slog.Logger) (*gwt.App, error) {
 	// A minimal end-to-end demonstration of the round trip: GET hands back
 	// the current token (Ctx.CSRFToken, the handler-side read of what CSRF
 	// set), POST requires it back via the X-CSRF-Token header.
-	app.GET("/csrf-demo", func(c *gwt.Ctx) error {
+	app.GET("/csrf-demo", func(c *loom.Ctx) error {
 		token, _ := c.CSRFToken()
-		return c.JSON(http.StatusOK, gwt.H{"csrf_token": token})
+		return c.JSON(http.StatusOK, loom.H{"csrf_token": token})
 	}, csrf)
-	app.POST("/csrf-demo", func(c *gwt.Ctx) error {
-		return c.JSON(http.StatusOK, gwt.H{"accepted": true})
+	app.POST("/csrf-demo", func(c *loom.Ctx) error {
+		return c.JSON(http.StatusOK, loom.H{"accepted": true})
 	}, csrf)
 
 	// --- Responses: Ctx.JSON, Ctx.HTML, Ctx.String, Ctx.NoContent ---
 
-	app.GET("/", func(c *gwt.Ctx) error {
-		return c.JSON(http.StatusOK, gwt.H{"hello": "world"})
+	app.GET("/", func(c *loom.Ctx) error {
+		return c.JSON(http.StatusOK, loom.H{"hello": "world"})
 	})
 
 	// Param reads a stdlib ServeMux wildcard; Query reads the URL query.
-	app.GET("/items/{id}", func(c *gwt.Ctx) error {
-		return c.JSON(http.StatusOK, gwt.H{
+	app.GET("/items/{id}", func(c *loom.Ctx) error {
+		return c.JSON(http.StatusOK, loom.H{
 			"id":     c.Param("id"),
 			"format": c.QueryDefault("format", "full"),
 		})
@@ -151,7 +151,7 @@ func newApp(cfg gwt.ServerConfig, logger *slog.Logger) (*gwt.App, error) {
 
 	// Bind decodes JSON and, on malformed input, returns an error that
 	// already carries a 400 — so the whole failure path is `return err`.
-	app.POST("/items", func(c *gwt.Ctx) error {
+	app.POST("/items", func(c *loom.Ctx) error {
 		var in Item
 		if err := c.Bind(&in); err != nil {
 			return err
@@ -162,57 +162,57 @@ func newApp(cfg gwt.ServerConfig, logger *slog.Logger) (*gwt.App, error) {
 		return c.JSON(http.StatusCreated, in)
 	})
 
-	app.PUT("/items/{id}", func(c *gwt.Ctx) error {
-		return c.JSON(http.StatusOK, gwt.H{"id": c.Param("id"), "op": "replaced"})
+	app.PUT("/items/{id}", func(c *loom.Ctx) error {
+		return c.JSON(http.StatusOK, loom.H{"id": c.Param("id"), "op": "replaced"})
 	})
 
-	app.PATCH("/items/{id}", func(c *gwt.Ctx) error {
-		return c.JSON(http.StatusOK, gwt.H{"id": c.Param("id"), "op": "updated"})
+	app.PATCH("/items/{id}", func(c *loom.Ctx) error {
+		return c.JSON(http.StatusOK, loom.H{"id": c.Param("id"), "op": "updated"})
 	})
 
-	app.DELETE("/items/{id}", func(c *gwt.Ctx) error {
+	app.DELETE("/items/{id}", func(c *loom.Ctx) error {
 		return c.NoContent(http.StatusNoContent)
 	})
 
-	app.OPTIONS("/items/{id}", func(c *gwt.Ctx) error {
+	app.OPTIONS("/items/{id}", func(c *loom.Ctx) error {
 		c.SetHeader("Allow", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 		return c.NoContent(http.StatusNoContent)
 	})
 
 	// HTML renders a named template from the set loaded above.
-	app.GET("/page", func(c *gwt.Ctx) error {
-		return c.HTML(http.StatusOK, "index.tmpl", gwt.H{"Name": "kitchen sink"})
+	app.GET("/page", func(c *loom.Ctx) error {
+		return c.HTML(http.StatusOK, "index.tmpl", loom.H{"Name": "kitchen sink"})
 	})
 
 	// String writes text literally; Stringf formats (and go vet checks the
 	// format string, because of the f suffix).
-	app.GET("/hello/{name}", func(c *gwt.Ctx) error {
+	app.GET("/hello/{name}", func(c *loom.Ctx) error {
 		return c.Stringf(http.StatusOK, "hello, %s", c.Param("name"))
 	})
 
-	app.GET("/old-page", func(c *gwt.Ctx) error {
+	app.GET("/old-page", func(c *loom.Ctx) error {
 		return c.Redirect(http.StatusFound, "/page")
 	})
 
 	// --- Errors ---
 
 	// Error sets the status and a client-visible message.
-	app.GET("/missing", func(c *gwt.Ctx) error {
+	app.GET("/missing", func(c *loom.Ctx) error {
 		return c.Error(http.StatusNotFound, "no such item")
 	})
 
 	// ErrorCause wraps an internal cause: the client sees the standard text
 	// for the status, the cause goes to the log only.
-	app.GET("/missing-wrapped", func(c *gwt.Ctx) error {
+	app.GET("/missing-wrapped", func(c *loom.Ctx) error {
 		return c.ErrorCause(http.StatusNotFound, errNoSuchItem)
 	})
 
 	// A plain error is a 500 whose detail never reaches the client.
-	app.GET("/boom", func(c *gwt.Ctx) error {
+	app.GET("/boom", func(c *loom.Ctx) error {
 		return errors.New("simulated failure")
 	})
 
-	app.GET("/panic", func(c *gwt.Ctx) error {
+	app.GET("/panic", func(c *loom.Ctx) error {
 		panic("simulated panic — caught by the automatic Recover middleware")
 	})
 
@@ -220,7 +220,7 @@ func newApp(cfg gwt.ServerConfig, logger *slog.Logger) (*gwt.App, error) {
 
 	// ServeStatic takes an fs.FS, so both os.DirFS (here — read from disk
 	// at the working directory) and an embedded //go:embed static work.
-	// The scaffold (cmd/gwt-cli) demonstrates the embedded form.
+	// The scaffold (cmd/loom) demonstrates the embedded form.
 	app.ServeStatic("/static/", os.DirFS("static"))
 
 	// HandleHTTP mounts a plain net/http handler, bypassing Ctx — the
@@ -246,17 +246,17 @@ func newApp(cfg gwt.ServerConfig, logger *slog.Logger) (*gwt.App, error) {
 	// Middleware stays plain net/http, so anything already written against
 	// func(http.Handler) http.Handler drops straight in. Chain combines
 	// several into one.
-	app.GET("/chained", func(c *gwt.Ctx) error {
-		return c.JSON(http.StatusOK, gwt.H{"ok": true})
-	}, gwt.Chain(tagHeader, timingHeader))
+	app.GET("/chained", func(c *loom.Ctx) error {
+		return c.JSON(http.StatusOK, loom.H{"ok": true})
+	}, loom.Chain(tagHeader, timingHeader))
 
 	// --- Authentication ---
 
 	adminUser := envOrDefault("ADMIN_USER", "admin")
 	adminPassword := envOrDefault("ADMIN_PASSWORD", "changeme")
-	app.GET("/admin", func(c *gwt.Ctx) error {
+	app.GET("/admin", func(c *loom.Ctx) error {
 		user, _ := c.Identity()
-		return c.JSON(http.StatusOK, gwt.H{"logged_in_as": user})
+		return c.JSON(http.StatusOK, loom.H{"logged_in_as": user})
 	}, app.Authentication(func(r *http.Request) (string, bool) {
 		user, pass, ok := r.BasicAuth()
 		if !ok || user != adminUser || pass != adminPassword {
@@ -276,27 +276,27 @@ func envOrDefault(key, fallback string) string {
 }
 
 func main() {
-	cfg := gwt.LoadServerConfig()
+	cfg := loom.LoadServerConfig()
 
-	logger := gwt.NewLogger(cfg.Env)
+	logger := loom.NewLogger(cfg.Env)
 	app, err := newApp(cfg, logger)
 	if err != nil {
-		logger.Error("gwt: setup failed", "err", err)
+		logger.Error("loom: setup failed", "err", err)
 		os.Exit(1)
 	}
 
 	if os.Getenv("CUSTOM_SERVER") != "" {
 		// App.Handler() returns the fully-built handler (global
-		// middleware + routes), for when you want to embed gwt as one
+		// middleware + routes), for when you want to embed loom as one
 		// piece of a larger stdlib net/http setup instead of letting
 		// Run/RunContext own the whole *http.Server. Here it's mounted
-		// under a plain http.ServeMux alongside a non-gwt route.
+		// under a plain http.ServeMux alongside a non-loom route.
 		mux := http.NewServeMux()
 		mux.Handle("/", app.Handler())
 		mux.HandleFunc("/ping", func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 		})
-		logger.Info("gwt: starting custom server", "addr", cfg.Addr)
+		logger.Info("loom: starting custom server", "addr", cfg.Addr)
 		if err := http.ListenAndServe(cfg.Addr, mux); err != nil {
 			logger.Error("server exited with error", "err", err)
 			os.Exit(1)

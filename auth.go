@@ -1,4 +1,4 @@
-package gwt
+package loom
 
 import (
 	"context"
@@ -18,7 +18,7 @@ type identityContextKey struct{}
 // authenticate is where the actual credential check lives — Basic auth via
 // r.BasicAuth(), a bearer token from the Authorization header, a signed
 // cookie, whatever the caller needs. Authentication itself is
-// scheme-agnostic: a rejection is a 401 carrying gwt's usual JSON error
+// scheme-agnostic: a rejection is a 401 carrying loom's usual JSON error
 // body and no WWW-Authenticate header, since Authentication has no way to
 // know which scheme authenticate implements.
 //
@@ -31,11 +31,11 @@ func (a *App) Authentication(authenticate func(r *http.Request) (identity string
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			identity, ok := authenticate(r)
 			if !ok {
-				// Rendered as JSON, matching every other gwt-generated
+				// Rendered as JSON, matching every other loom-generated
 				// error, so a client doesn't have to special-case the
 				// rejection shape.
 				if werr := writeJSONError(w, http.StatusUnauthorized, statusMessage(http.StatusUnauthorized)); werr != nil {
-					a.logger.Error("gwt: write error response failed", "err", werr, "method", r.Method, "path", r.URL.Path)
+					a.logger.Error("loom: write error response failed", "err", werr, "method", r.Method, "path", r.URL.Path)
 				}
 				return
 			}

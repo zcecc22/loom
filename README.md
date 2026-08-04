@@ -1,23 +1,25 @@
-# gwt — Go Web Toolkit
+<p align="center"><img src="assets/logo.svg" width="120" alt="loom logo"></p>
 
-[![Go Reference](https://pkg.go.dev/badge/github.com/zcecc22/go-web-toolkit.svg)](https://pkg.go.dev/github.com/zcecc22/go-web-toolkit)
+# loom — Go Web Toolkit
+
+[![Go Reference](https://pkg.go.dev/badge/github.com/zcecc22/loom.svg)](https://pkg.go.dev/github.com/zcecc22/loom)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Go Version](https://img.shields.io/badge/go-1.26.5%2B-00ADD8?logo=go&logoColor=white)](go.mod)
 
-`gwt` is a zero-dependency, stdlib-only toolkit that eliminates boilerplate around routing, middleware, server lifecycle, configuration, and JSON/HTML rendering for `net/http` applications. It is deliberately **not a framework**: there's no router DSL beyond what stdlib's `http.ServeMux` already gives you, no ORM, no dependency-injection container. It's a thin layer that makes writing a small, correct, deployable Go web service fast, without hiding `net/http` from you.
+`loom` is a zero-dependency, stdlib-only toolkit that eliminates boilerplate around routing, middleware, server lifecycle, configuration, and JSON/HTML rendering for `net/http` applications. It is deliberately **not a framework**: there's no router DSL beyond what stdlib's `http.ServeMux` already gives you, no ORM, no dependency-injection container. It's a thin layer that makes writing a small, correct, deployable Go web service fast, without hiding `net/http` from you.
 
 ```go
 package main
 
 import (
-	gwt "github.com/zcecc22/go-web-toolkit"
+	"github.com/zcecc22/loom"
 )
 
 func main() {
-	app := gwt.New()
+	app := loom.New()
 
-	app.GET("/", func(c *gwt.Ctx) error {
-		return c.JSON(200, gwt.H{"hello": "world"})
+	app.GET("/", func(c *loom.Ctx) error {
+		return c.JSON(200, loom.H{"hello": "world"})
 	})
 
 	if err := app.Run(); err != nil {
@@ -26,13 +28,13 @@ func main() {
 }
 ```
 
-That's a complete, working service: structured request logging, panic recovery, graceful shutdown, and env-based config loading are all active with zero further setup. New to gwt? The fastest start is `gwt-cli new` (see [Scaffolding](#scaffolding-a-new-project) below); to understand the pieces it wires together, read the [Tutorial](#tutorial-building-an-items-api) or browse [examples/basic](examples/basic) for a single-file tour of every construct in the API.
+That's a complete, working service: structured request logging, panic recovery, graceful shutdown, and env-based config loading are all active with zero further setup. New to loom? The fastest start is `loom new` (see [Scaffolding](#scaffolding-a-new-project) below); to understand the pieces it wires together, read the [Tutorial](#tutorial-building-an-items-api) or browse [examples/basic](examples/basic) for a single-file tour of every construct in the API.
 
 ## Contents
 
 - [Install](#install)
 - [Scaffolding a new project](#scaffolding-a-new-project)
-- [Why gwt](#why-gwt)
+- [Why loom](#why-loom)
 - [Comparison to alternatives](#comparison-to-alternatives)
 - [Tutorial: building an items API](#tutorial-building-an-items-api)
 - [API reference](#api-reference)
@@ -45,31 +47,31 @@ That's a complete, working service: structured request logging, panic recovery, 
 ## Install
 
 ```
-go get github.com/zcecc22/go-web-toolkit
+go get github.com/zcecc22/loom
 ```
 
-The import path is the module path above; the package name is `gwt` (they don't match — that's intentional, see [CLAUDE.md](CLAUDE.md)).
+The import path's last segment and the package name are both `loom` — no aliasing needed on import.
 
 Requires **Go 1.26.5 or newer** — that's the floor `go.mod` declares. (The route-pattern syntax used throughout this README, `GET /items/{id}`, depends on `http.ServeMux` enhancements that landed in Go 1.22; 1.26.5 is simply the actual minimum this module supports.)
 
 ## Scaffolding a new project
 
-The standard way to start a new gwt app — a runnable project, not just a library import:
+The standard way to start a new loom app — a runnable project, not just a library import:
 
 ```
-go install github.com/zcecc22/go-web-toolkit/cmd/gwt-cli@latest
+go install github.com/zcecc22/loom/cmd/loom@latest
 
-gwt-cli new myapp
+loom new myapp
 cd myapp
 go mod tidy
 go run .
 ```
 
-(From inside a checkout of this repo, `go run ./cmd/gwt-cli new myapp` works too, without installing anything.)
+(From inside a checkout of this repo, `go run ./cmd/loom new myapp` works too, without installing anything.)
 
-`gwt-cli new <name>` generates a runnable app (`main.go`, `go.mod`) demonstrating the core of the API:
+`loom new <name>` generates a runnable app (`main.go`, `go.mod`) demonstrating the core of the API:
 
-- `app := gwt.New()` — no explicit config-loading call; `New` reads `ADDR`/`ENV`/`*_TIMEOUT` from the environment itself, panicking on a malformed `*_TIMEOUT`
+- `app := loom.New()` — no explicit config-loading call; `New` reads `ADDR`/`ENV`/`*_TIMEOUT` from the environment itself, panicking on a malformed `*_TIMEOUT`
 - `GET /` — `c.JSON`
 - `GET /page` and `POST /page` — `c.HTML` from an embedded template set, with a form demonstrating the full CSRF round-trip
 - `GET /items/{id}` — returning `c.Error(404, ...)` for anything but `1`
@@ -87,25 +89,25 @@ go run .
 Flags: `-module <path>` (Go module path, default the project name), `-port <num>` (default `8000`), `-force` (overwrite an existing non-empty directory). Flags go before the name:
 
 ```
-gwt-cli new -module example.com/myapp -port 9000 myapp
+loom new -module example.com/myapp -port 9000 myapp
 ```
 
 The scaffold keeps `Authentication` out of the generated app on purpose — see [Authentication](#authentication) below, or [examples/basic](examples/basic), for a worked example.
 
-## Why gwt
+## Why loom
 
-- **Nothing to wire up.** `gwt.New()` alone gives you a logged, panic-safe, env-configured server. No middleware stack to assemble by hand.
-- **Handlers return errors.** `func(c *gwt.Ctx) error` — return an error and the framework renders it. No `if err != nil { writeErrorAndReturn }` in every handler.
+- **Nothing to wire up.** `loom.New()` alone gives you a logged, panic-safe, env-configured server. No middleware stack to assemble by hand.
+- **Handlers return errors.** `func(c *loom.Ctx) error` — return an error and the framework renders it. No `if err != nil { writeErrorAndReturn }` in every handler.
 - **Stdlib routing, not a reinvented one.** Route patterns are exactly Go 1.22+ `http.ServeMux` syntax (`GET /items/{id}`), read with `c.Param("id")`.
 - **Middleware is plain `net/http`.** `func(http.Handler) http.Handler`, so anything written for the standard library drops straight in.
 - **Flat routing.** No nested route groups or prefix builders to reason about — every route is registered with its full path, in one place.
 - **Graceful shutdown that's actually correct.** In-flight requests finish before the process exits; the shutdown trigger is never conflated with request context cancellation (a common bug this toolkit specifically avoids — see [CLAUDE.md](CLAUDE.md)).
-- **Deploy-ready out of the box.** `gwt-cli new` scaffolds a runnable app plus a complete Docker deployment setup.
+- **Deploy-ready out of the box.** `loom new` scaffolds a runnable app plus a complete Docker deployment setup.
 - **Zero dependencies.** Everything is `net/http`, `html/template`, `encoding/json`, `log/slog`. `go.mod` has no `require` lines.
 
 ## Comparison to alternatives
 
-| | gwt | gin / echo | chi | `net/http` alone |
+| | loom | gin / echo | chi | `net/http` alone |
 |---|---|---|---|---|
 | Dependencies | zero | several (own router + helpers) | zero | zero |
 | Routing | stdlib `http.ServeMux` | custom router | own lightweight router | stdlib `http.ServeMux` |
@@ -113,11 +115,11 @@ The scaffold keeps `Authentication` out of the generated app on purpose — see 
 | Request/response helpers | `Ctx` (JSON, HTML, errors, binding) | yes, framework-specific | none built in | none |
 | Server lifecycle, config, scaffolding | yes | bring your own | bring your own | bring your own |
 
-Where `gwt` sits: closer to `chi` than to `gin`/`echo` — no reinvented routing, no framework-specific middleware type — but with the request/response conveniences, config loading, graceful shutdown, and a project scaffolder that `chi` and bare `net/http` leave to you. If you want a router DSL with groups, wildcards beyond stdlib, or a large built-in middleware ecosystem, `gin` or `echo` are the better fit; `gwt` deliberately doesn't compete on that axis (see "Why gwt" above and [CLAUDE.md](CLAUDE.md)'s design principles for what was left out on purpose).
+Where `loom` sits: closer to `chi` than to `gin`/`echo` — no reinvented routing, no framework-specific middleware type — but with the request/response conveniences, config loading, graceful shutdown, and a project scaffolder that `chi` and bare `net/http` leave to you. If you want a router DSL with groups, wildcards beyond stdlib, or a large built-in middleware ecosystem, `gin` or `echo` are the better fit; `loom` deliberately doesn't compete on that axis (see "Why loom" above and [CLAUDE.md](CLAUDE.md)'s design principles for what was left out on purpose).
 
 ## Tutorial: building an items API
 
-This walks through building a small `/items` service from nothing, introducing one gwt concept at a time. Each step is a complete, runnable program — start a new `main.go` and grow it as you go, or treat it as a guided read of [examples/basic](examples/basic). (If you started from `gwt-cli new` instead, most of this is already wired up — read on to see what each piece does.)
+This walks through building a small `/items` service from nothing, introducing one loom concept at a time. Each step is a complete, runnable program — start a new `main.go` and grow it as you go, or treat it as a guided read of [examples/basic](examples/basic). (If you started from `loom new` instead, most of this is already wired up — read on to see what each piece does.)
 
 ### 1. A server that does nothing yet
 
@@ -125,11 +127,11 @@ This walks through building a small `/items` service from nothing, introducing o
 package main
 
 import (
-	gwt "github.com/zcecc22/go-web-toolkit"
+	"github.com/zcecc22/loom"
 )
 
 func main() {
-	app := gwt.New()
+	app := loom.New()
 	app.Run()
 }
 ```
@@ -145,7 +147,7 @@ type Item struct {
 
 var items = map[string]Item{"1": {Name: "widget"}}
 
-app.GET("/items/{id}", func(c *gwt.Ctx) error {
+app.GET("/items/{id}", func(c *loom.Ctx) error {
 	item, ok := items[c.Param("id")]
 	if !ok {
 		return c.Error(404, "no such item")
@@ -164,7 +166,7 @@ curl localhost:8000/items/999  # {"error":"no such item"}
 ### 3. Accept writes
 
 ```go
-app.POST("/items/{id}", func(c *gwt.Ctx) error {
+app.POST("/items/{id}", func(c *loom.Ctx) error {
 	var in Item
 	if err := c.Bind(&in); err != nil {
 		return err // malformed JSON -> 400, automatically
@@ -198,13 +200,13 @@ import "embed"
 //go:embed templates
 var templatesFS embed.FS
 
-// in main(), after gwt.New():
+// in main(), after loom.New():
 if err := app.LoadTemplates(templatesFS, "templates/*.tmpl"); err != nil {
 	log.Fatal(err)
 }
 
-app.GET("/", func(c *gwt.Ctx) error {
-	return c.HTML(200, "index.tmpl", gwt.H{"Count": len(items)})
+app.GET("/", func(c *loom.Ctx) error {
+	return c.HTML(200, "index.tmpl", loom.H{"Count": len(items)})
 })
 ```
 
@@ -216,7 +218,7 @@ Templates are parsed once at startup, not per request, and `c.HTML` auto-escapes
 app.Use(app.SecureHeaders()) // X-Content-Type-Options, X-Frame-Options, Referrer-Policy
 ```
 
-`SecureHeaders` is opt-in — wire it with `Use` once, right after `New`, and it applies to every route. There's no separate config-loading step to add here: `gwt.New()` back in step 1 already reads `ADDR`, `ENV`, and the `*_TIMEOUT` variables from the environment on its own, panicking if one is malformed. `CORS` and `CSRF` are opt-in the same way — see [Security](#security) below.
+`SecureHeaders` is opt-in — wire it with `Use` once, right after `New`, and it applies to every route. There's no separate config-loading step to add here: `loom.New()` back in step 1 already reads `ADDR`, `ENV`, and the `*_TIMEOUT` variables from the environment on its own, panicking if one is malformed. `CORS` and `CSRF` are opt-in the same way — see [Security](#security) below.
 
 ### Putting it together
 
@@ -229,7 +231,7 @@ import (
 	"embed"
 	"log"
 
-	gwt "github.com/zcecc22/go-web-toolkit"
+	"github.com/zcecc22/loom"
 )
 
 type Item struct {
@@ -242,14 +244,14 @@ var items = map[string]Item{"1": {Name: "widget"}}
 var templatesFS embed.FS
 
 func main() {
-	app := gwt.New()
+	app := loom.New()
 
 	if err := app.LoadTemplates(templatesFS, "templates/*.tmpl"); err != nil {
 		log.Fatal(err)
 	}
 	app.Use(app.SecureHeaders())
 
-	app.GET("/items/{id}", func(c *gwt.Ctx) error {
+	app.GET("/items/{id}", func(c *loom.Ctx) error {
 		item, ok := items[c.Param("id")]
 		if !ok {
 			return c.Error(404, "no such item")
@@ -257,7 +259,7 @@ func main() {
 		return c.JSON(200, item)
 	})
 
-	app.POST("/items/{id}", func(c *gwt.Ctx) error {
+	app.POST("/items/{id}", func(c *loom.Ctx) error {
 		var in Item
 		if err := c.Bind(&in); err != nil {
 			return err
@@ -266,8 +268,8 @@ func main() {
 		return c.JSON(201, in)
 	})
 
-	app.GET("/", func(c *gwt.Ctx) error {
-		return c.HTML(200, "index.tmpl", gwt.H{"Count": len(items)})
+	app.GET("/", func(c *loom.Ctx) error {
+		return c.HTML(200, "index.tmpl", loom.H{"Count": len(items)})
 	})
 
 	if err := app.Run(); err != nil {
@@ -324,7 +326,7 @@ Every route handler takes a `*Ctx` and returns an `error`. `Ctx` carries the req
 
 `c.JSON` and `c.HTML` both render fully into memory before touching the response, so a marshal or template-execute failure never emits a partial body — you get a clean 500 instead.
 
-> **Note:** gwt does not provide gin's `c.Set`/`c.Get`. Middleware here is plain `net/http` and runs *outside* the `Ctx`, so nothing downstream of a handler could read what `c.Set` wrote. Use `context.WithValue` in middleware and `c.Value(key)` in the handler.
+> **Note:** loom does not provide gin's `c.Set`/`c.Get`. Middleware here is plain `net/http` and runs *outside* the `Ctx`, so nothing downstream of a handler could read what `c.Set` wrote. Use `context.WithValue` in middleware and `c.Value(key)` in the handler.
 
 ### Errors
 
@@ -355,7 +357,7 @@ Client errors (4xx) log at `WARN`, server errors (5xx) at `ERROR`, so a stream o
 
 ### Error shape
 
-**Every error gwt generates is JSON: `{"error":"<message>"}` with `Content-Type: application/json`.** That holds no matter which layer produced it, so a client can parse one shape without special-casing:
+**Every error loom generates is JSON: `{"error":"<message>"}` with `Content-Type: application/json`.** That holds no matter which layer produced it, so a client can parse one shape without special-casing:
 
 | Situation | Response |
 |---|---|
@@ -378,12 +380,12 @@ If you want a different shape, `AppConfig.ErrorHandler` covers handler errors, a
 Override the whole behavior with `AppConfig.ErrorHandler`:
 
 ```go
-app := gwt.New(gwt.AppConfig{
-	ErrorHandler: func(c *gwt.Ctx, err error) {
+app := loom.New(loom.AppConfig{
+	ErrorHandler: func(c *loom.Ctx, err error) {
 		if c.Written() {
 			return // the handler already responded; don't corrupt it
 		}
-		_ = c.JSON(500, gwt.H{"detail": "something went wrong"})
+		_ = c.JSON(500, loom.H{"detail": "something went wrong"})
 	},
 })
 ```
@@ -396,7 +398,7 @@ That `c.Written()` check matters because `return c.JSON(...)` is the normal idio
 func New(cfg ...AppConfig) *App
 ```
 
-`New` builds a ready `*App` — logged, panic-safe, listening on the default address, with zero further setup. It also loads its server config from the environment itself (`ADDR`, `ENV`, and the `*_TIMEOUT` variables — see Configuration below), which is the only thing that can make it panic: a malformed `*_TIMEOUT` value fails fast and loudly, naming the offending variable. `cfg` is variadic only so `gwt.New()` with no argument keeps working for the zero-config case — passing more than one `AppConfig` is meaningless and only the first is used.
+`New` builds a ready `*App` — logged, panic-safe, listening on the default address, with zero further setup. It also loads its server config from the environment itself (`ADDR`, `ENV`, and the `*_TIMEOUT` variables — see Configuration below), which is the only thing that can make it panic: a malformed `*_TIMEOUT` value fails fast and loudly, naming the offending variable. `cfg` is variadic only so `loom.New()` with no argument keeps working for the zero-config case — passing more than one `AppConfig` is meaningless and only the first is used.
 
 There's no functional-options layer here: `AppConfig` is a plain struct. Set the fields you care about, leave the rest zero:
 
@@ -425,16 +427,16 @@ type AppConfig struct {
 Three independent examples (not meant to run together):
 
 ```go
-app := gwt.New() // reads ADDR/ENV/*_TIMEOUT from the environment; hardcoded default for anything unset
+app := loom.New() // reads ADDR/ENV/*_TIMEOUT from the environment; hardcoded default for anything unset
 ```
 
 ```go
 // An explicit Server field wins over whatever the environment set.
-app := gwt.New(gwt.AppConfig{Server: gwt.ServerConfig{Addr: ":9000"}})
+app := loom.New(loom.AppConfig{Server: loom.ServerConfig{Addr: ":9000"}})
 ```
 
 ```go
-app := gwt.New(gwt.AppConfig{
+app := loom.New(loom.AppConfig{
 	Logger: myLogger,
 	OnShutdown: []func(context.Context) error{
 		func(ctx context.Context) error { return db.Close() },
@@ -471,9 +473,9 @@ This is what `New` calls internally on every construction — you don't normally
 It stays exported for the case where you want the resolved config *before* an `App` exists — e.g. to build your own logger from `cfg.Env` ahead of time, or to log the resolved address before binding it:
 
 ```go
-cfg := gwt.LoadServerConfig()
-logger := gwt.NewLogger(cfg.Env)
-app := gwt.New(gwt.AppConfig{Server: cfg, Logger: logger})
+cfg := loom.LoadServerConfig()
+logger := loom.NewLogger(cfg.Env)
+app := loom.New(loom.AppConfig{Server: cfg, Logger: logger})
 ```
 
 ### Server lifecycle
@@ -507,7 +509,7 @@ Patterns are exactly stdlib `http.ServeMux` syntax — `"/items/{id}"`, read wit
 `HandleHTTP` mounts a plain `http.Handler`, bypassing `Ctx` entirely — the escape hatch for third-party handlers, reverse proxies, and anything already written against `net/http`.
 
 ```go
-app.OPTIONS("/items/{id}", func(c *gwt.Ctx) error {
+app.OPTIONS("/items/{id}", func(c *loom.Ctx) error {
 	c.SetHeader("Allow", "GET, PUT, DELETE, OPTIONS")
 	return c.NoContent(204)
 })
@@ -526,14 +528,14 @@ app.Recover() Middleware
 app.Use(mw ...Middleware)
 ```
 
-Middleware is plain `net/http`, **not** `Ctx`-based. That's deliberate: global middleware also covers the mux's own 404/405 responses, and those requests never match a route — so there's no `Ctx` to give them. Keeping the stdlib shape also means any middleware written for `net/http` composes with gwt directly.
+Middleware is plain `net/http`, **not** `Ctx`-based. That's deliberate: global middleware also covers the mux's own 404/405 responses, and those requests never match a route — so there's no `Ctx` to give them. Keeping the stdlib shape also means any middleware written for `net/http` composes with loom directly.
 
 `Chain(A, B, C)` composes so declared order equals request-flow order: `A` runs first. `app.Logging()` and `app.Recover()` are the built-in middleware `New` already wires for you; call them yourself only if you're doing something unusual. `app.Use(mw...)` adds anything beyond the defaults — it appends, stacked *after* logging/recovery (closer to the handler), so a panic or early exit inside your own middleware is still caught and logged.
 
 **Fixed request-flow order:** `Logging → Recover → Use-added (in call order) → route-level mw → handler`.
 
 ```go
-app := gwt.New()
+app := loom.New()
 app.Use(app.SecureHeaders())
 
 app.GET("/admin", adminHandler, requireRole("admin"))
@@ -563,8 +565,8 @@ app.LoadTemplates(templatesFS, "templates/*.tmpl")
 Each template's name in the set is its base filename, which is what `c.HTML` takes:
 
 ```go
-app.GET("/page", func(c *gwt.Ctx) error {
-	return c.HTML(200, "index.tmpl", gwt.H{"Name": "world"})
+app.GET("/page", func(c *loom.Ctx) error {
+	return c.HTML(200, "index.tmpl", loom.H{"Name": "world"})
 })
 ```
 
@@ -616,7 +618,7 @@ All three are opt-in via `Use` (or route-level `mw`) — never automatic, unlike
 `c.Bind` does not limit body size on its own; `MaxBodySize` is the mechanism for that.
 
 ```go
-app := gwt.New()
+app := loom.New()
 app.Use(app.SecureHeaders(), app.MaxBodySize(10<<20)) // 10 MiB
 if os.Getenv("ENV") == "prod" {
 	app.Use(app.HSTS())
@@ -638,12 +640,12 @@ type CORSConfig struct {
 app.CORS(cfg CORSConfig) Middleware
 ```
 
-`CORS` is browser-enforced, not server-enforced: a request from a disallowed origin is still served normally — the browser withholds the response from the requesting script, gwt never rejects it with an error status. A CORS preflight (`OPTIONS` carrying `Access-Control-Request-Method`) is answered by `CORS` itself, before routing — which is why `CORS` must be wired via `Use`, not as route-level `mw`. A plain `OPTIONS` request without that header isn't a preflight and still reaches a registered `app.OPTIONS(...)` route normally.
+`CORS` is browser-enforced, not server-enforced: a request from a disallowed origin is still served normally — the browser withholds the response from the requesting script, loom never rejects it with an error status. A CORS preflight (`OPTIONS` carrying `Access-Control-Request-Method`) is answered by `CORS` itself, before routing — which is why `CORS` must be wired via `Use`, not as route-level `mw`. A plain `OPTIONS` request without that header isn't a preflight and still reaches a registered `app.OPTIONS(...)` route normally.
 
 `App.CORS` panics at setup if `AllowCredentials` is `true` and `AllowedOrigins` contains `"*"` — CORS itself forbids that combination.
 
 ```go
-app.Use(app.CORS(gwt.CORSConfig{
+app.Use(app.CORS(loom.CORSConfig{
 	AllowedOrigins: []string{"https://example.com"},
 	AllowedHeaders: []string{"X-CSRF-Token"}, // required if you also use CSRF — see below
 	MaxAge:         10 * time.Minute,
@@ -659,7 +661,7 @@ type CSRFConfig struct {
 }
 
 app.CSRF(cfg CSRFConfig) Middleware
-gwt.CSRFToken(r *http.Request) (token string, ok bool)
+loom.CSRFToken(r *http.Request) (token string, ok bool)
 c.CSRFToken() (token string, ok bool)
 ```
 
@@ -671,14 +673,14 @@ c.CSRFToken() (token string, ok bool)
 
 ```go
 // CSRF_SECRET is required — App.CSRF panics on an empty Secret.
-csrf := app.CSRF(gwt.CSRFConfig{Secret: []byte(os.Getenv("CSRF_SECRET")), Secure: os.Getenv("ENV") == "prod"})
+csrf := app.CSRF(loom.CSRFConfig{Secret: []byte(os.Getenv("CSRF_SECRET")), Secure: os.Getenv("ENV") == "prod"})
 
-app.GET("/form", func(c *gwt.Ctx) error {
+app.GET("/form", func(c *loom.Ctx) error {
 	token, _ := c.CSRFToken()
-	return c.HTML(200, "form.tmpl", gwt.H{"CSRFToken": token})
+	return c.HTML(200, "form.tmpl", loom.H{"CSRFToken": token})
 }, csrf)
 
-app.POST("/form", func(c *gwt.Ctx) error {
+app.POST("/form", func(c *loom.Ctx) error {
 	return c.Redirect(303, "/form")
 }, csrf)
 ```
@@ -699,7 +701,7 @@ If you also use `CORS`: `SameSite=Lax` means the CSRF cookie is never sent on a 
 ```go
 app.Authentication(authenticate func(r *http.Request) (identity string, ok bool)) Middleware
 c.Identity() (identity string, ok bool)
-gwt.Identity(r *http.Request) (identity string, ok bool)
+loom.Identity(r *http.Request) (identity string, ok bool)
 ```
 
 `Authentication` is generic and scheme-agnostic: you supply `authenticate`, which does the actual credential check (Basic auth, a bearer token, a signed cookie — whatever your app needs) and returns an identity string plus whether it's valid. On `!ok`, `Authentication` responds `401` and the handler never runs. On `ok`, the identity is stashed in the request context; read it back with `c.Identity()`.
@@ -709,9 +711,9 @@ gwt.Identity(r *http.Request) (identity string, ok bool)
 A worked example using HTTP Basic Auth:
 
 ```go
-app.GET("/admin", func(c *gwt.Ctx) error {
+app.GET("/admin", func(c *loom.Ctx) error {
 	user, _ := c.Identity()
-	return c.JSON(200, gwt.H{"logged_in_as": user})
+	return c.JSON(200, loom.H{"logged_in_as": user})
 }, app.Authentication(func(r *http.Request) (string, bool) {
 	user, pass, ok := r.BasicAuth()
 	if !ok || !validCredentials(user, pass) {
@@ -721,11 +723,11 @@ app.GET("/admin", func(c *gwt.Ctx) error {
 }))
 ```
 
-The package-level `gwt.Identity(r)` does the same thing for code that holds only a request — middleware, or a handler mounted with `HandleHTTP`.
+The package-level `loom.Identity(r)` does the same thing for code that holds only a request — middleware, or a handler mounted with `HandleHTTP`.
 
-`gwt` doesn't provide a built-in Basic/Bearer/session implementation — `authenticate` is where you plug in whichever scheme you need. This also means `gwt` doesn't issue, sign, or store sessions; `Authentication` is a building block for session-based auth, not a session framework. (CSRF protection itself is a separate, already-built middleware — see [CSRF](#csrf) above — it doesn't need a session store, since it uses the stateless double-submit cookie pattern.)
+`loom` doesn't provide a built-in Basic/Bearer/session implementation — `authenticate` is where you plug in whichever scheme you need. This also means `loom` doesn't issue, sign, or store sessions; `Authentication` is a building block for session-based auth, not a session framework. (CSRF protection itself is a separate, already-built middleware — see [CSRF](#csrf) above — it doesn't need a session store, since it uses the stateless double-submit cookie pattern.)
 
-`Authentication`'s 401 uses the same JSON error shape as every other gwt error — see [Error shape](#error-shape).
+`Authentication`'s 401 uses the same JSON error shape as every other loom error — see [Error shape](#error-shape).
 
 ### Logging
 
@@ -739,15 +741,15 @@ c.Logger() *slog.Logger
 
 ## Idiomatic usage
 
-- **Start with zero setup.** `gwt.New()` is a complete, safe starting point. Reach for `AppConfig` fields only when you actually need to override something.
+- **Start with zero setup.** `loom.New()` is a complete, safe starting point. Reach for `AppConfig` fields only when you actually need to override something.
 - **Return errors instead of writing them.** `return c.Error(404, "not found")` beats writing a status and remembering to `return`. Reserve manual responses for success paths.
 - **Let internal errors stay internal.** Returning a plain error gives the client a generic 500 and puts the detail in the log. That's the intended behavior — don't put `err.Error()` into a response body.
 - **The logger is the one implicit dependency.** It's embedded in `App` so the built-in middleware and `c.Logger()` don't need it threaded through every call. Everything else — a DB handle, a config value, anything your handlers need — should be passed explicitly (typically via closures, see below), not bolted onto `App`.
 - **Wire dependencies with closures, not a DI container.** There's no framework-level way to inject a database handle into a handler. Build handlers as closures over what they need:
 
   ```go
-  func itemsGet(store *Store) gwt.Handler {
-  	return func(c *gwt.Ctx) error {
+  func itemsGet(store *Store) loom.Handler {
+  	return func(c *loom.Ctx) error {
   		item, err := store.Get(c.Param("id"))
   		if err != nil {
   			return c.ErrorCause(404, err)
@@ -762,7 +764,7 @@ c.Logger() *slog.Logger
 - **Use `Use` for concerns that apply to every route** — security headers, request IDs, CORS, whatever your app needs beyond logging/recovery — applied once, right after `New`. Use route-level `mw` (the trailing arguments to `GET`/`POST`/etc.) instead for anything that shouldn't apply everywhere — `Authentication` is the main example: wiring it into `Use` would lock out every route, including ones that should stay public (health checks, static assets), so it's designed to be passed only to the specific routes that need it.
 - **Keep routes flat.** There's no `Group`. If you have `/api/v1/...`-style paths, write the full pattern string at each call site — a small amount of repetition in exchange for never having to reason about how prefixes and middleware compose across nesting levels.
 - **Test handlers directly against `App`.** `App` implements `http.Handler`, so `httptest.NewRecorder()` + `app.ServeHTTP(rec, req)` — or `httptest.NewServer(app)` for a real listener — is all you need; no framework-specific test harness.
-- **Prefer `RunContext` over `Run` when embedding gwt in something larger** (e.g. a supervisor that manages multiple services) — pass your own cancelable context instead of relying on OS signal handling.
+- **Prefer `RunContext` over `Run` when embedding loom in something larger** (e.g. a supervisor that manages multiple services) — pass your own cancelable context instead of relying on OS signal handling.
 
 ## Contributing
 

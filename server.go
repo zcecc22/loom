@@ -1,4 +1,4 @@
-package gwt
+package loom
 
 import (
 	"context"
@@ -46,7 +46,7 @@ func (a *App) RunContext(ctx context.Context, addr ...string) error {
 	}
 
 	if err := runOnStart(context.Background(), a.onStart); err != nil {
-		return fmt.Errorf("gwt: startup hook failed: %w", err)
+		return fmt.Errorf("loom: startup hook failed: %w", err)
 	}
 
 	srv := &http.Server{
@@ -59,7 +59,7 @@ func (a *App) RunContext(ctx context.Context, addr ...string) error {
 		BaseContext:       a.baseContextFn,
 	}
 
-	a.logger.Info("gwt: starting server", "addr", listenAddr, "env", a.cfg.Env)
+	a.logger.Info("loom: starting server", "addr", listenAddr, "env", a.cfg.Env)
 
 	serveErrCh := make(chan error, 1)
 	go func() {
@@ -73,7 +73,7 @@ func (a *App) RunContext(ctx context.Context, addr ...string) error {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), a.cfg.ShutdownTimeout)
 		defer cancel()
 		if err := srv.Shutdown(shutdownCtx); err != nil {
-			serveErr = fmt.Errorf("gwt: shutdown: %w", err)
+			serveErr = fmt.Errorf("loom: shutdown: %w", err)
 		}
 		if err := <-serveErrCh; err != nil && !errors.Is(err, http.ErrServerClosed) {
 			serveErr = errors.Join(serveErr, err)
@@ -85,7 +85,7 @@ func (a *App) RunContext(ctx context.Context, addr ...string) error {
 	}
 
 	if err := runOnShutdown(context.Background(), a.onShutdown); err != nil {
-		serveErr = errors.Join(serveErr, fmt.Errorf("gwt: shutdown hook failed: %w", err))
+		serveErr = errors.Join(serveErr, fmt.Errorf("loom: shutdown hook failed: %w", err))
 	}
 
 	return serveErr
@@ -125,7 +125,7 @@ func callHook(ctx context.Context, h func(context.Context) error) error {
 	func() {
 		defer func() {
 			if rec := recover(); rec != nil {
-				hookErr = fmt.Errorf("gwt: hook panic: %v", rec)
+				hookErr = fmt.Errorf("loom: hook panic: %v", rec)
 			}
 		}()
 		hookErr = h(ctx)

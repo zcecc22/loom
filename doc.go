@@ -1,4 +1,4 @@
-// Package gwt is a zero-dependency, stdlib-only toolkit that eliminates
+// Package loom is a zero-dependency, stdlib-only toolkit that eliminates
 // boilerplate around routing, middleware, server lifecycle, configuration,
 // and JSON/HTML-template rendering for net/http applications. It is
 // deliberately not a framework: there is no router DSL beyond what
@@ -10,9 +10,9 @@
 // itself (ADDR, ENV, the *_TIMEOUT variables); a malformed *_TIMEOUT is the
 // only thing that can make it panic:
 //
-//	app := gwt.New()
-//	app.GET("/", func(c *gwt.Ctx) error {
-//		return c.JSON(200, gwt.H{"hello": "world"})
+//	app := loom.New()
+//	app.GET("/", func(c *loom.Ctx) error {
+//		return c.JSON(200, loom.H{"hello": "world"})
 //	})
 //	if err := app.Run(); err != nil {
 //		app.Logger().Error("server exited", "err", err)
@@ -30,7 +30,7 @@
 // client-safe message; any other error becomes a 500 whose details are
 // logged but never sent:
 //
-//	app.GET("/items/{id}", func(c *gwt.Ctx) error {
+//	app.GET("/items/{id}", func(c *loom.Ctx) error {
 //		item, err := store.Find(c.Param("id"))
 //		if err != nil {
 //			return c.Error(404, "no such item")
@@ -38,7 +38,7 @@
 //		return c.JSON(200, item)
 //	})
 //
-// Every error gwt itself generates renders the same way — a JSON body of
+// Every error loom itself generates renders the same way — a JSON body of
 // the form {"error":"<message>"} — whether it came from a handler, a
 // panic, an Authentication or CSRF rejection, or the router finding no
 // route. The two exceptions are handlers mounted with HandleHTTP and
@@ -47,8 +47,8 @@
 // # Middleware
 //
 // Middleware is plain net/http — func(http.Handler) http.Handler — so
-// anything written for the stdlib composes with gwt directly. Pass it to
+// anything written for the stdlib composes with loom directly. Pass it to
 // Use for the whole app, or as trailing arguments to a route for just that
 // route. Logging and Recover are always on; SecureHeaders, MaxBodySize,
 // HSTS, CORS, CSRF, and Authentication are opt-in.
-package gwt
+package loom

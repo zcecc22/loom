@@ -1,4 +1,4 @@
-package gwt
+package loom
 
 import (
 	"encoding/json"
@@ -28,9 +28,9 @@ type HTTPError struct {
 // Error implements error.
 func (e *HTTPError) Error() string {
 	if e.Err != nil {
-		return fmt.Sprintf("gwt: %d %s: %v", e.Code, e.Message, e.Err)
+		return fmt.Sprintf("loom: %d %s: %v", e.Code, e.Message, e.Err)
 	}
-	return fmt.Sprintf("gwt: %d %s", e.Code, e.Message)
+	return fmt.Sprintf("loom: %d %s", e.Code, e.Message)
 }
 
 // Unwrap returns the underlying cause, so errors.Is and errors.As see
@@ -72,7 +72,7 @@ func statusMessage(code int) string {
 	return "Error"
 }
 
-// writeJSONError writes gwt's canonical error body — {"error":"<message>"} —
+// writeJSONError writes loom's canonical error body — {"error":"<message>"} —
 // with the given status. It is the shared writer for the error paths that
 // have no Ctx to render through: Recover's 500, Authentication's 401,
 // CSRF's 403, and the mux's own 404/405. defaultErrorHandler produces the
@@ -122,7 +122,7 @@ func (a *App) defaultErrorHandler(c *Ctx, err error) {
 	if code >= http.StatusInternalServerError {
 		logAt = a.logger.Error
 	}
-	logAt("gwt: request failed",
+	logAt("loom: request failed",
 		"err", err,
 		"status", code,
 		"method", c.R.Method,
@@ -138,6 +138,6 @@ func (a *App) defaultErrorHandler(c *Ctx, err error) {
 	}
 
 	if werr := c.JSON(code, H{"error": message}); werr != nil {
-		a.logger.Error("gwt: write error response failed", "err", werr, "method", c.R.Method, "path", c.R.URL.Path)
+		a.logger.Error("loom: write error response failed", "err", werr, "method", c.R.Method, "path", c.R.URL.Path)
 	}
 }

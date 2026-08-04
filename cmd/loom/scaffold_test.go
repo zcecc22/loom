@@ -14,7 +14,7 @@ func TestScaffoldGeneratesExpectedFiles(t *testing.T) {
 	dir := t.TempDir()
 	dest := filepath.Join(dir, "testapp")
 
-	data := scaffoldData{Name: "testapp", Module: "testapp", Port: 9001, GwtModule: gwtModulePath}
+	data := scaffoldData{Name: "testapp", Module: "testapp", Port: 9001, LoomModule: loomModulePath}
 	if err := scaffold(dest, data, false); err != nil {
 		t.Fatalf("scaffold() error = %v", err)
 	}
@@ -41,7 +41,7 @@ func TestScaffoldRefusesNonEmptyDestWithoutForce(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	data := scaffoldData{Name: "testapp", Module: "testapp", Port: 8000, GwtModule: gwtModulePath}
+	data := scaffoldData{Name: "testapp", Module: "testapp", Port: 8000, LoomModule: loomModulePath}
 	if err := scaffold(dest, data, false); err == nil {
 		t.Fatal("scaffold() error = nil, want error for non-empty dest without -force")
 	}
@@ -53,7 +53,7 @@ func TestScaffoldRefusesNonEmptyDestWithoutForce(t *testing.T) {
 func TestGeneratedMainGoParsesAsValidGo(t *testing.T) {
 	dir := t.TempDir()
 	dest := filepath.Join(dir, "testapp")
-	data := scaffoldData{Name: "testapp", Module: "testapp", Port: 8000, GwtModule: gwtModulePath}
+	data := scaffoldData{Name: "testapp", Module: "testapp", Port: 8000, LoomModule: loomModulePath}
 	if err := scaffold(dest, data, false); err != nil {
 		t.Fatalf("scaffold() error = %v", err)
 	}
@@ -84,7 +84,7 @@ func TestGeneratedProjectBuildsAndVets(t *testing.T) {
 
 	dir := t.TempDir()
 	dest := filepath.Join(dir, "testapp")
-	data := scaffoldData{Name: "testapp", Module: "testapp", Port: 8000, GwtModule: gwtModulePath}
+	data := scaffoldData{Name: "testapp", Module: "testapp", Port: 8000, LoomModule: loomModulePath}
 	if err := scaffold(dest, data, false); err != nil {
 		t.Fatalf("scaffold() error = %v", err)
 	}
@@ -99,7 +99,7 @@ func TestGeneratedProjectBuildsAndVets(t *testing.T) {
 		}
 	}
 
-	run("go", "mod", "edit", "-replace", gwtModulePath+"="+repoRoot)
+	run("go", "mod", "edit", "-replace", loomModulePath+"="+repoRoot)
 	run("go", "mod", "tidy")
 	run("go", "build", "./...")
 	run("go", "vet", "./...")

@@ -1,4 +1,4 @@
-package gwt
+package loom
 
 import (
 	"bufio"
@@ -34,7 +34,7 @@ func Chain(mw ...Middleware) Middleware {
 //
 // Embedding an http.ResponseWriter hides the optional interfaces the
 // wrapped writer implements, and since Logging is always on and cannot be
-// removed, anything that hides here is unreachable in every gwt app. So
+// removed, anything that hides here is unreachable in every loom app. So
 // Flusher, Hijacker, and ReaderFrom are forwarded explicitly — that's
 // streaming, SSE, and WebSocket upgrades respectively — and Unwrap exposes
 // the underlying writer to http.ResponseController for everything else.

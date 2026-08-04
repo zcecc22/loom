@@ -7,7 +7,7 @@ import (
 	"os"
 	"strings"
 
-	gwt "{{.GwtModule}}"
+	"{{.LoomModule}}"
 )
 
 // templatesFS and staticFS embed their directories into the binary, so
@@ -23,7 +23,7 @@ var templatesFS embed.FS
 var staticFS embed.FS
 
 // devCSRFSecret was generated uniquely for this project when it was
-// scaffolded (`gwt-cli new`) — see the CSRF wiring below for why it exists
+// scaffolded (`loom new`) — see the CSRF wiring below for why it exists
 // and its limits.
 const devCSRFSecret = "{{.CSRFSecret}}"
 
@@ -31,10 +31,10 @@ func main() {
 	// New loads ADDR/ENV/*_TIMEOUT from the environment itself — see
 	// .env.example for what it reads. A malformed *_TIMEOUT panics,
 	// naming the offending variable.
-	app := gwt.New()
+	app := loom.New()
 
 	if err := app.LoadTemplates(templatesFS, "templates/*.tmpl"); err != nil {
-		app.Logger().Error("gwt: loading templates", "err", err)
+		app.Logger().Error("loom: loading templates", "err", err)
 		os.Exit(1)
 	}
 
@@ -57,11 +57,11 @@ func main() {
 				allowed = append(allowed, o)
 			}
 		}
-		app.Use(app.CORS(gwt.CORSConfig{AllowedOrigins: allowed}))
+		app.Use(app.CORS(loom.CORSConfig{AllowedOrigins: allowed}))
 	}
 
 	// CSRF requires a signing secret with no safe default. devCSRFSecret
-	// was generated uniquely for this project by `gwt-cli new` (not shared
+	// was generated uniquely for this project by `loom new` (not shared
 	// with any other scaffolded app), so the app runs CSRF-protected out of
 	// the box for local dev with no setup — but it's baked into source, so
 	// it's not fit for a real deployment: ENV=prod requires a real
@@ -69,32 +69,32 @@ func main() {
 	secret := os.Getenv("CSRF_SECRET")
 	if secret == "" {
 		if os.Getenv("ENV") == "prod" {
-			app.Logger().Error("gwt: CSRF_SECRET is not set — see .env.example")
+			app.Logger().Error("loom: CSRF_SECRET is not set — see .env.example")
 			os.Exit(1)
 		}
 		secret = devCSRFSecret
 	}
-	app.Use(app.CSRF(gwt.CSRFConfig{
+	app.Use(app.CSRF(loom.CSRFConfig{
 		Secret: []byte(secret),
 		Secure: os.Getenv("ENV") == "prod",
 	}))
 
-	app.GET("/", func(c *gwt.Ctx) error {
-		return c.JSON(http.StatusOK, gwt.H{"hello": "{{.Name}}"})
+	app.GET("/", func(c *loom.Ctx) error {
+		return c.JSON(http.StatusOK, loom.H{"hello": "{{.Name}}"})
 	})
 
-	app.GET("/page", func(c *gwt.Ctx) error {
+	app.GET("/page", func(c *loom.Ctx) error {
 		token, _ := c.CSRFToken()
-		return c.HTML(http.StatusOK, "index.tmpl", gwt.H{"Name": "{{.Name}}", "CSRFToken": token, "Message": ""})
+		return c.HTML(http.StatusOK, "index.tmpl", loom.H{"Name": "{{.Name}}", "CSRFToken": token, "Message": ""})
 	})
 
 	// Demonstrates the CSRF round-trip end to end: the form on /page embeds
 	// the token GET rendered, and this handler is protected automatically
 	// since CSRF is wired globally via Use.
-	app.POST("/page", func(c *gwt.Ctx) error {
+	app.POST("/page", func(c *loom.Ctx) error {
 		token, _ := c.CSRFToken()
 		message := c.FormValue("message")
-		return c.HTML(http.StatusOK, "index.tmpl", gwt.H{"Name": "{{.Name}}", "CSRFToken": token, "Message": message})
+		return c.HTML(http.StatusOK, "index.tmpl", loom.H{"Name": "{{.Name}}", "CSRFToken": token, "Message": message})
 	})
 
 	// fs.Sub strips the "static/" prefix go:embed leaves in staticFS's
@@ -102,7 +102,7 @@ func main() {
 	// same relative shape os.DirFS("static") would produce from disk.
 	staticSub, err := fs.Sub(staticFS, "static")
 	if err != nil {
-		app.Logger().Error("gwt: static assets", "err", err)
+		app.Logger().Error("loom: static assets", "err", err)
 		os.Exit(1)
 	}
 	app.ServeStatic("/static/", staticSub)
@@ -111,11 +111,11 @@ func main() {
 	// c.Error or c.ErrorCause) supplies the status and a client-visible
 	// message, and any other error becomes a 500 whose detail stays in the
 	// log rather than reaching the client.
-	app.GET("/items/{id}", func(c *gwt.Ctx) error {
+	app.GET("/items/{id}", func(c *loom.Ctx) error {
 		if c.Param("id") != "1" {
 			return c.Error(http.StatusNotFound, "no such item")
 		}
-		return c.JSON(http.StatusOK, gwt.H{"id": c.Param("id")})
+		return c.JSON(http.StatusOK, loom.H{"id": c.Param("id")})
 	})
 
 	if err := app.Run(); err != nil {

@@ -1,4 +1,4 @@
-package gwt
+package loom
 
 import (
 	"log/slog"

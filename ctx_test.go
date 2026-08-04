@@ -1,4 +1,4 @@
-package gwt
+package loom
 
 import (
 	"bufio"
@@ -261,7 +261,7 @@ func TestCtxFormValueReadsBodyAndQuery(t *testing.T) {
 	if fromBody != "widget" {
 		t.Fatalf("FormValue(name) = %q, want widget (from the form body)", fromBody)
 	}
-	// Stdlib's FormValue consults the query string too, and gwt does not
+	// Stdlib's FormValue consults the query string too, and loom does not
 	// change that.
 	if fromQuery != "fast" {
 		t.Fatalf("FormValue(mode) = %q, want fast (from the query string)", fromQuery)
@@ -396,7 +396,7 @@ func TestCtxWrittenReportsCommitState(t *testing.T) {
 // TestLoggingForwardsOptionalInterfaces guards the optional interfaces
 // through the always-on Logging middleware. statusWriter wraps every
 // response, and Logging cannot be removed, so anything it fails to forward
-// is unreachable in every gwt app — which is what silently broke SSE and
+// is unreachable in every loom app — which is what silently broke SSE and
 // WebSocket upgrades before these were added.
 func TestLoggingForwardsOptionalInterfaces(t *testing.T) {
 	a := New(AppConfig{Logger: discardLogger()})

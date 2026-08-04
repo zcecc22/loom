@@ -1,4 +1,4 @@
-package gwt
+package loom
 
 import (
 	"net/http"
@@ -69,7 +69,7 @@ func (a *App) HSTS() Middleware {
 }
 
 // defaultCORSMethods is used for Access-Control-Allow-Methods when
-// CORSConfig.AllowedMethods is empty — the six gwt verb methods.
+// CORSConfig.AllowedMethods is empty — the six loom verb methods.
 var defaultCORSMethods = []string{
 	http.MethodGet, http.MethodPost, http.MethodPut,
 	http.MethodPatch, http.MethodDelete, http.MethodOptions,
@@ -88,7 +88,7 @@ type CORSConfig struct {
 	AllowedOrigins []string
 
 	// AllowedMethods sets Access-Control-Allow-Methods on a preflight
-	// response. Defaults to gwt's six verb methods (GET, POST, PUT,
+	// response. Defaults to loom's six verb methods (GET, POST, PUT,
 	// PATCH, DELETE, OPTIONS) if empty.
 	AllowedMethods []string
 
@@ -140,7 +140,7 @@ func (a *App) CORS(cfg CORSConfig) Middleware {
 		}
 	}
 	if wildcard && cfg.AllowCredentials {
-		panic("gwt: CORSConfig.AllowCredentials cannot be combined with a wildcard (\"*\") AllowedOrigins entry")
+		panic("loom: CORSConfig.AllowCredentials cannot be combined with a wildcard (\"*\") AllowedOrigins entry")
 	}
 
 	methods := cfg.AllowedMethods

@@ -13,7 +13,7 @@ import (
 // templatesFS embeds every file under templates/, both the plain source
 // templates (*.in) and the verbatim-copied files (e.g. templates/index.tmpl,
 // itself an html/template interpreted by the generated app at runtime, not
-// by gwt-cli at generation time).
+// by loom at generation time).
 //
 //go:embed all:templates
 var templatesFS embed.FS
@@ -24,7 +24,7 @@ type scaffoldData struct {
 	Name       string // project directory / binary / image name
 	Module     string // Go module path for the new project
 	Port       int    // port the generated app listens on
-	GwtModule  string // this toolkit's module path, for the go.mod require/import lines
+	LoomModule string // this toolkit's module path, for the go.mod require/import lines
 	CSRFSecret string // generated fresh per project, baked in as main.go's dev-only CSRF fallback
 }
 
@@ -38,7 +38,7 @@ type manifestEntry struct {
 	IsTemplate bool
 }
 
-// manifest is the explicit, hand-maintained list of files gwt-cli new
+// manifest is the explicit, hand-maintained list of files loom new
 // emits — no magic path transformations (e.g. stripping ".in" implicitly);
 // every output file is listed here by name.
 var manifest = []manifestEntry{

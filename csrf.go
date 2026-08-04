@@ -1,4 +1,4 @@
-package gwt
+package loom
 
 import (
 	"context"
@@ -64,7 +64,7 @@ type CSRFConfig struct {
 // per-request condition.
 func (a *App) CSRF(cfg CSRFConfig) Middleware {
 	if len(cfg.Secret) == 0 {
-		panic("gwt: CSRFConfig.Secret must not be empty")
+		panic("loom: CSRFConfig.Secret must not be empty")
 	}
 
 	return func(next http.Handler) http.Handler {
@@ -147,7 +147,7 @@ func isFormContentType(r *http.Request) bool {
 
 func writeCSRFRejection(a *App, w http.ResponseWriter, r *http.Request) {
 	if err := writeJSONError(w, http.StatusForbidden, statusMessage(http.StatusForbidden)); err != nil {
-		a.logger.Error("gwt: write error response failed", "err", err, "method", r.Method, "path", r.URL.Path)
+		a.logger.Error("loom: write error response failed", "err", err, "method", r.Method, "path", r.URL.Path)
 	}
 }
 

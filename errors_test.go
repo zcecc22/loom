@@ -1,4 +1,4 @@
-package gwt
+package loom
 
 import (
 	"bytes"
@@ -233,7 +233,7 @@ func TestPanicAfterResponseCommittedDoesNotCorruptIt(t *testing.T) {
 
 // TestEveryErrorPathRendersTheSameShape is the guarantee that motivated
 // writeJSONError: a client should be able to parse {"error": ...} from any
-// error gwt itself produces, without special-casing which layer generated
+// error loom itself produces, without special-casing which layer generated
 // it. The four paths reach the wire through different code — Ctx.JSON, the
 // unexported writeJSONError from three separate callers — so only an
 // end-to-end assertion holds them together.

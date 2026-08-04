@@ -1,4 +1,4 @@
-package gwt
+package loom
 
 import (
 	"bytes"
@@ -9,16 +9,16 @@ import (
 	"net/http"
 )
 
-// H is shorthand for a JSON object literal: gwt.H{"hello": "world"}
+// H is shorthand for a JSON object literal: loom.H{"hello": "world"}
 // marshals to {"hello":"world"}. It is an ordinary map, so anything a
 // map[string]any accepts works here too.
 type H map[string]any
 
-// Handler is a gwt request handler. Returning a non-nil error hands the
+// Handler is a loom request handler. Returning a non-nil error hands the
 // response over to the App's error handler, which is what removes the
 // per-failure "write a 500 and return" boilerplate from handler bodies:
 //
-//	app.GET("/items/{id}", func(c *gwt.Ctx) error {
+//	app.GET("/items/{id}", func(c *loom.Ctx) error {
 //		item, err := store.Find(c.Param("id"))
 //		if err != nil {
 //			return c.Error(404, "no such item")
@@ -118,7 +118,7 @@ func (c *Ctx) Context() context.Context {
 // Value returns the value the request's context carries for key, or nil.
 // It is the read side for middleware that stashed something with
 // context.WithValue — including middleware written against plain net/http,
-// which is why key is an any rather than a gwt-specific type.
+// which is why key is an any rather than a loom-specific type.
 func (c *Ctx) Value(key any) any {
 	return c.R.Context().Value(key)
 }
@@ -168,7 +168,7 @@ func (c *Ctx) write(status int, contentType string, body []byte) error {
 	c.W.WriteHeader(status)
 	c.wroteHeader = true
 	if _, err := c.W.Write(body); err != nil {
-		return fmt.Errorf("gwt: write response: %w", err)
+		return fmt.Errorf("loom: write response: %w", err)
 	}
 	return nil
 }
@@ -180,7 +180,7 @@ func (c *Ctx) write(status int, contentType string, body []byte) error {
 func (c *Ctx) JSON(status int, data any) error {
 	body, err := json.Marshal(data)
 	if err != nil {
-		return fmt.Errorf("gwt: marshal json response: %w", err)
+		return fmt.Errorf("loom: marshal json response: %w", err)
 	}
 	return c.write(status, "application/json; charset=utf-8", body)
 }
@@ -209,12 +209,12 @@ func (c *Ctx) Stringf(status int, format string, args ...any) error {
 // error is returned instead and the error handler renders a 500.
 func (c *Ctx) HTML(status int, name string, data any) error {
 	if c.app.templates == nil {
-		return fmt.Errorf("gwt: cannot render %q: no templates loaded (call App.LoadTemplates or set AppConfig.Templates)", name)
+		return fmt.Errorf("loom: cannot render %q: no templates loaded (call App.LoadTemplates or set AppConfig.Templates)", name)
 	}
 
 	var buf bytes.Buffer
 	if err := c.app.templates.ExecuteTemplate(&buf, name, data); err != nil {
-		return fmt.Errorf("gwt: execute template %q: %w", name, err)
+		return fmt.Errorf("loom: execute template %q: %w", name, err)
 	}
 
 	return c.write(status, "text/html; charset=utf-8", buf.Bytes())

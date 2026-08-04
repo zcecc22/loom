@@ -1,4 +1,4 @@
-package gwt
+package loom
 
 import (
 	"fmt"
@@ -33,7 +33,7 @@ func (a *App) LoadTemplates(fsys fs.FS, patterns ...string) error {
 
 	tmpl, err := template.ParseFS(fsys, patterns...)
 	if err != nil {
-		return fmt.Errorf("gwt: load templates: %w", err)
+		return fmt.Errorf("loom: load templates: %w", err)
 	}
 
 	a.templates = tmpl
@@ -52,13 +52,13 @@ func (a *App) LoadTemplates(fsys fs.FS, patterns ...string) error {
 // always-on Logging middleware is what makes the check possible: Recover
 // runs inside it, so w is the *statusWriter that knows.
 func (a *App) serverError(w http.ResponseWriter, r *http.Request, err error) {
-	a.logger.Error("gwt: server error", "err", err, "method", r.Method, "path", r.URL.Path)
+	a.logger.Error("loom: server error", "err", err, "method", r.Method, "path", r.URL.Path)
 
 	if sw, ok := w.(*statusWriter); ok && sw.wroteHeader {
 		return
 	}
 
 	if werr := writeJSONError(w, http.StatusInternalServerError, statusMessage(http.StatusInternalServerError)); werr != nil {
-		a.logger.Error("gwt: write error response failed", "err", werr, "method", r.Method, "path", r.URL.Path)
+		a.logger.Error("loom: write error response failed", "err", werr, "method", r.Method, "path", r.URL.Path)
 	}
 }
