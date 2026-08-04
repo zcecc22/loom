@@ -74,7 +74,7 @@ func statusMessage(code int) string {
 
 // writeJSONError writes gwt's canonical error body — {"error":"<message>"} —
 // with the given status. It is the shared writer for the error paths that
-// have no Ctx to render through: Recover's 500, Auth's 401, and the mux's
+// have no Ctx to render through: Recover's 500, Authentication's 401, and the mux's
 // own 404/405. defaultErrorHandler produces the identical shape via
 // Ctx.JSON, and TestEveryErrorPathRendersTheSameShape holds the two
 // together.

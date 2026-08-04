@@ -343,7 +343,7 @@ func TestCtxIdentityMatchesPackageIdentity(t *testing.T) {
 		viaCtx, okCtx = c.Identity()
 		viaFunc, _ = Identity(c.R)
 		return c.NoContent(http.StatusOK)
-	}, a.Auth(func(r *http.Request) (string, bool) { return "alice", true }))
+	}, a.Authentication(func(r *http.Request) (string, bool) { return "alice", true }))
 
 	a.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/t", nil))
 

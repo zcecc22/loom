@@ -6,13 +6,13 @@ import (
 	"testing"
 )
 
-func TestAuthRejectsUnauthenticatedRequest(t *testing.T) {
+func TestAuthenticationRejectsUnauthenticatedRequest(t *testing.T) {
 	a := mustNew(t, AppConfig{Logger: discardLogger()})
 	var handlerCalled bool
 	a.GET("/admin", func(c *Ctx) error {
 		handlerCalled = true
 		return nil
-	}, a.Auth(func(r *http.Request) (string, bool) {
+	}, a.Authentication(func(r *http.Request) (string, bool) {
 		return "", false
 	}))
 
@@ -27,14 +27,14 @@ func TestAuthRejectsUnauthenticatedRequest(t *testing.T) {
 	}
 }
 
-func TestAuthAcceptsAndSetsIdentity(t *testing.T) {
+func TestAuthenticationAcceptsAndSetsIdentity(t *testing.T) {
 	a := mustNew(t, AppConfig{Logger: discardLogger()})
 	var gotIdentity string
 	var gotOK bool
 	a.GET("/admin", func(c *Ctx) error {
 		gotIdentity, gotOK = Identity(c.R)
 		return c.NoContent(http.StatusOK)
-	}, a.Auth(func(r *http.Request) (string, bool) {
+	}, a.Authentication(func(r *http.Request) (string, bool) {
 		return "alice", true
 	}))
 
@@ -49,20 +49,20 @@ func TestAuthAcceptsAndSetsIdentity(t *testing.T) {
 	}
 }
 
-func TestIdentityWithoutAuthReturnsNotOK(t *testing.T) {
+func TestIdentityWithoutAuthenticationReturnsNotOK(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	identity, ok := Identity(req)
 	if ok {
-		t.Fatalf("Identity() = (%q, true), want ok=false for a request that never went through Auth", identity)
+		t.Fatalf("Identity() = (%q, true), want ok=false for a request that never went through Authentication", identity)
 	}
 }
 
-func TestAuthWithRealBasicAuthPattern(t *testing.T) {
+func TestAuthenticationWithRealBasicAuthPattern(t *testing.T) {
 	a := mustNew(t, AppConfig{Logger: discardLogger()})
 	a.GET("/admin", func(c *Ctx) error {
 		user, _ := c.Identity()
 		return c.String(http.StatusOK, "hello "+user)
-	}, a.Auth(func(r *http.Request) (string, bool) {
+	}, a.Authentication(func(r *http.Request) (string, bool) {
 		user, pass, ok := r.BasicAuth()
 		if !ok || user != "admin" || pass != "secret" {
 			return "", false

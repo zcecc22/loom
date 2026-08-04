@@ -8,7 +8,7 @@
 // (Param, Query, Bind, JSON, String, HTML, NoContent, Redirect), error
 // handling (returning an error, Ctx.Error, Ctx.ErrorErr, HTTPError), template
 // loading (LoadTemplates), static file serving (ServeStatic),
-// authentication (Auth, Ctx.Identity), and both startup patterns (Run,
+// authentication (Authentication, Ctx.Identity), and both startup patterns (Run,
 // and Handler embedded in your own *http.Server or mux).
 //
 // See cmd/gwt-cli for the canonical scaffolded-project template with
@@ -217,7 +217,7 @@ func newApp(cfg gwt.ServerConfig, logger *slog.Logger) (*gwt.App, error) {
 	app.GET("/admin", func(c *gwt.Ctx) error {
 		user, _ := c.Identity()
 		return c.JSON(http.StatusOK, gwt.H{"logged_in_as": user})
-	}, app.Auth(func(r *http.Request) (string, bool) {
+	}, app.Authentication(func(r *http.Request) (string, bool) {
 		user, pass, ok := r.BasicAuth()
 		if !ok || user != adminUser || pass != adminPassword {
 			return "", false

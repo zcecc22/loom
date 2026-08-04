@@ -123,9 +123,9 @@ func (c *Ctx) Value(key any) any {
 	return c.R.Context().Value(key)
 }
 
-// Identity returns the identity an Auth middleware stashed for this
-// request, and whether one was set. It is the handler-side equivalent of
-// the package-level Identity function.
+// Identity returns the identity an Authentication middleware stashed for
+// this request, and whether one was set. It is the handler-side
+// equivalent of the package-level Identity function.
 func (c *Ctx) Identity() (identity string, ok bool) {
 	return Identity(c.R)
 }

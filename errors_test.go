@@ -247,7 +247,7 @@ func TestEveryErrorPathRendersTheSameShape(t *testing.T) {
 	})
 	a.GET("/guarded", func(c *Ctx) error {
 		return nil
-	}, a.Auth(func(r *http.Request) (string, bool) { return "", false }))
+	}, a.Authentication(func(r *http.Request) (string, bool) { return "", false }))
 
 	cases := []struct {
 		name       string
@@ -258,7 +258,7 @@ func TestEveryErrorPathRendersTheSameShape(t *testing.T) {
 	}{
 		{"handler returned an error", http.MethodGet, "/handler-error", http.StatusNotFound, `{"error":"no such item"}`},
 		{"handler panicked", http.MethodGet, "/panic", http.StatusInternalServerError, `{"error":"Internal Server Error"}`},
-		{"Auth rejected", http.MethodGet, "/guarded", http.StatusUnauthorized, `{"error":"Unauthorized"}`},
+		{"Authentication rejected", http.MethodGet, "/guarded", http.StatusUnauthorized, `{"error":"Unauthorized"}`},
 		{"mux found no route", http.MethodGet, "/nothing-here", http.StatusNotFound, `{"error":"Not Found"}`},
 		{"mux found no method", http.MethodPost, "/handler-error", http.StatusMethodNotAllowed, `{"error":"Method Not Allowed"}`},
 	}

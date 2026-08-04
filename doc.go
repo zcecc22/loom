@@ -43,7 +43,7 @@
 //
 // Every error gwt itself generates renders the same way — a JSON body of
 // the form {"error":"<message>"} — whether it came from a handler, a
-// panic, an Auth rejection, or the router finding no route. The two
+// panic, an Authentication rejection, or the router finding no route. The two
 // exceptions are handlers mounted with HandleHTTP and ServeStatic, which
 // own their own responses; see HandleHTTP.
 //
@@ -53,5 +53,5 @@
 // anything written for the stdlib composes with gwt directly. Pass it to
 // Use for the whole app, or as trailing arguments to a route for just that
 // route. Logging and Recover are always on; SecureHeaders, MaxBodySize,
-// HSTS, and Auth are opt-in.
+// HSTS, and Authentication are opt-in.
 package gwt
