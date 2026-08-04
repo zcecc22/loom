@@ -64,12 +64,12 @@ func main() {
 	app.ServeStatic("/static/", staticSub)
 
 	// Returning an error from a handler renders it: an *HTTPError (from
-	// gwt.Status or gwt.StatusErr) supplies the status and a client-visible
+	// c.Error or c.ErrorErr) supplies the status and a client-visible
 	// message, and any other error becomes a 500 whose detail stays in the
 	// log rather than reaching the client.
 	app.GET("/items/{id}", func(c *gwt.Ctx) error {
 		if c.Param("id") != "1" {
-			return gwt.Status(http.StatusNotFound, "no such item")
+			return c.Error(http.StatusNotFound, "no such item")
 		}
 		return c.JSON(http.StatusOK, gwt.H{"id": c.Param("id")})
 	})

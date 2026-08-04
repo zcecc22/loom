@@ -31,12 +31,18 @@ func (a *App) DELETE(pattern string, h Handler, mw ...Middleware) {
 	a.Handle(http.MethodDelete, pattern, h, mw...)
 }
 
+// OPTIONS registers h for OPTIONS requests matching pattern. See GET.
+func (a *App) OPTIONS(pattern string, h Handler, mw ...Middleware) {
+	a.Handle(http.MethodOptions, pattern, h, mw...)
+}
+
 // Handle registers h for pattern under method, using stdlib ServeMux's
 // "METHOD /path" pattern syntax. If method is empty, the handler matches
 // any verb (stdlib's bare-pattern behavior). This is the generic
-// counterpart to GET/POST/PUT/PATCH/DELETE, for verbs without a dedicated
-// method (e.g. OPTIONS) or when the verb is only known at runtime. mw
-// wraps h only, not the whole App — see Use for whole-app middleware.
+// counterpart to GET/POST/PUT/PATCH/DELETE/OPTIONS, for verbs without a
+// dedicated method (e.g. TRACE) or when the verb is only known at
+// runtime. mw wraps h only, not the whole App — see Use for whole-app
+// middleware.
 func (a *App) Handle(method, pattern string, h Handler, mw ...Middleware) {
 	// The Ctx is built here, inside the route's own handler, so it exists
 	// only for requests that actually matched a route. Middleware stays

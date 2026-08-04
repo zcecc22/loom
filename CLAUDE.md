@@ -33,7 +33,7 @@ Scope, relative to v1:
 ├── app.go                 App struct, AppConfig struct, New(), Use(), Logger(), Handler()
 ├── ctx.go                 Ctx, Handler, H — request/response helpers (the v3 core)
 ├── errors.go              HTTPError, Ctx.Error(), Ctx.ErrorErr(), App.handleError
-├── router.go              GET/POST/PUT/PATCH/DELETE, Handle, HandleHTTP — flat routing
+├── router.go              GET/POST/PUT/PATCH/DELETE/OPTIONS, Handle, HandleHTTP — flat routing
 ├── middleware.go          Middleware type, Chain(), App.Logging(), App.Recover(), statusWriter
 ├── server.go              Run()/RunContext(), graceful shutdown, startup/shutdown hooks
 ├── config.go              ServerConfig struct, LoadServerConfig() (ServerConfig, error)
@@ -63,11 +63,11 @@ Scope, relative to v1:
 ## The API in 8 lines
 
 ```go
-app := gwt.New()
+app, err := gwt.New()
 app.GET("/items/{id}", func(c *gwt.Ctx) error {
 	item, err := store.Find(c.Param("id"))
 	if err != nil {
-		return gwt.Status(404, "no such item")
+		return c.Error(404, "no such item")
 	}
 	return c.JSON(200, item)
 })
@@ -103,7 +103,7 @@ All symbols live in package `gwt` at the module root, except the scaffolder CLI 
 - **`Handler()` composes the chain once, under a `sync.Once`, and caches it.** `ServeHTTP` used to rebuild the whole chain per request. Consequence to know: a `Use` call after serving has begun is **silently ignored**. Call `Use` before serving, right after `New`.
 
 **`router.go`** — flat routing only, no nesting/prefixing.
-- `App.GET/POST/PUT/PATCH/DELETE(pattern string, h Handler, mw ...Middleware)` — uppercase, gin-style. Five verbs, same as before. **No `HEAD` or `OPTIONS` method**: stdlib `ServeMux` already matches HEAD against a `GET` pattern, and `Handle`'s documented reason for existing is verbatim "for verbs without a dedicated method (e.g. `OPTIONS`)" — adding one would contradict the reason `Handle` survived `Group`'s deletion.
+- `App.GET/POST/PUT/PATCH/DELETE/OPTIONS(pattern string, h Handler, mw ...Middleware)` — uppercase, gin-style. Six verbs. `OPTIONS` was added 2026-08-04 by explicit request, reversing a documented prior decision — this repo previously argued against it verbatim ("`Handle`'s documented reason for existing is... for verbs without a dedicated method (e.g. `OPTIONS`)... adding one would contradict the reason `Handle` survived `Group`'s deletion"); that reasoning didn't hold once the user asked for it directly, same "new decision, not a precedent" framing as Principle 4's logger exception and the `New`/`Auth` changes alongside it. `Handle`'s doc comment now cites `TRACE` instead of `OPTIONS` as its example of a verb with no dedicated method — that broader justification (uncommon verbs, or a verb only known at runtime) still stands. **Still no `HEAD` method**: stdlib `ServeMux` already matches HEAD against a `GET` pattern, and nothing about the `OPTIONS` addition touches that reasoning.
 - `App.Handle(method, pattern string, h Handler, mw ...Middleware)` — generic verb as a plain string; `method == ""` matches any verb. This is where the `Ctx` adapter lives.
 - `App.HandleHTTP(method, pattern string, h http.Handler, mw ...Middleware)` — the raw `net/http` escape hatch, bypassing `Ctx` entirely (third-party handlers, proxies, `http.FileServer`). `ServeStatic` and `Handle` both build on it. Its registered wrapper **steps out of `notFoundWriter`** before running the handler — see below.
 - `muxErrorsAsJSON` / `notFoundWriter` (unexported) — makes the mux's own plain-text 404/405 come out in gwt's JSON error shape. `Handler` installs `muxErrorsAsJSON` as the innermost global wrapper.
@@ -150,7 +150,7 @@ All symbols live in package `gwt` at the module root, except the scaffolder CLI 
 - `Authentication` is **route-level** middleware, passed as a trailing `mw` argument. Protecting a subset of routes is just a matter of only passing it to those routes; no grouping mechanism is needed or provided.
 
 **`cmd/gwt-cli`**
-- `gwt-cli new <name>` — flags `-module <path>`, `-port <num>`, `-force`. Emits a runnable gwt app (`main.go`, `go.mod`) demonstrating the v3 API: `app, err := gwt.New()` with no explicit `LoadServerConfig()` call (`New` loads `ADDR`/`ENV`/`*_TIMEOUT` from the environment itself — see `.env.example`), a `c.JSON` route (`/`), a `c.HTML` route (`/page`) backed by `LoadTemplates` over an **embedded** `templates/`, `ServeStatic` (`/static/`) over an **embedded** `static/` (via `fs.Sub(staticFS, "static")` — `go:embed`'s FS keeps the `static/` prefix in its paths, which a bare `staticFS` would mismatch against URL-relative lookups), a `gwt.Status` error route (`/items/{id}`), and all three security middlewares (`SecureHeaders`+`MaxBodySize` unconditionally, `HSTS` gated on `ENV=prod`). **No `Authentication` demo** — the `/admin` route and `ADMIN_USER`/`ADMIN_PASSWORD` env vars were removed as unnecessary boilerplate for a minimal starting point; `Authentication`/`Ctx.Identity` are demonstrated in `examples/basic` instead, per Principle 7. Plus the Docker set: `Dockerfile` (copies only the binary — **both `templates/` and `static/` are embedded now**), `docker-compose.yml`, `update_image`, `.env.example`, `.dockerignore`. `.in` files run through `text/template`; other files are copied verbatim. `go mod tidy` is left as a manual step so the scaffold does not depend on network access.
+- `gwt-cli new <name>` — flags `-module <path>`, `-port <num>`, `-force`. Emits a runnable gwt app (`main.go`, `go.mod`) demonstrating the v3 API: `app, err := gwt.New()` with no explicit `LoadServerConfig()` call (`New` loads `ADDR`/`ENV`/`*_TIMEOUT` from the environment itself — see `.env.example`), a `c.JSON` route (`/`), a `c.HTML` route (`/page`) backed by `LoadTemplates` over an **embedded** `templates/`, `ServeStatic` (`/static/`) over an **embedded** `static/` (via `fs.Sub(staticFS, "static")` — `go:embed`'s FS keeps the `static/` prefix in its paths, which a bare `staticFS` would mismatch against URL-relative lookups), a `c.Error` error route (`/items/{id}`), and all three security middlewares (`SecureHeaders`+`MaxBodySize` unconditionally, `HSTS` gated on `ENV=prod`). **No `Authentication` demo** — the `/admin` route and `ADMIN_USER`/`ADMIN_PASSWORD` env vars were removed as unnecessary boilerplate for a minimal starting point; `Authentication`/`Ctx.Identity` are demonstrated in `examples/basic` instead, per Principle 7. Plus the Docker set: `Dockerfile` (copies only the binary — **both `templates/` and `static/` are embedded now**), `docker-compose.yml`, `update_image`, `.env.example`, `.dockerignore`. `.in` files run through `text/template`; other files are copied verbatim. `go mod tidy` is left as a manual step so the scaffold does not depend on network access.
 
 ## Conventions
 

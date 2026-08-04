@@ -1,7 +1,7 @@
 // Command basic is a single-file tour of every construct gwt provides:
 // config loading (LoadServerConfig, NewLogger), full construction (AppConfig —
 // Server, Logger, Templates, ErrorHandler, OnStart, OnShutdown,
-// BaseContext), all five routing verbs plus the generic Handle and the
+// BaseContext), all six routing verbs plus the generic Handle and the
 // net/http escape hatch HandleHTTP, middleware (Use, route-level mw,
 // Chain, the automatic Logging/Recover pair, and the opt-in
 // SecureHeaders/MaxBodySize/HSTS), the Ctx request/response helpers
@@ -132,9 +132,7 @@ func newApp(cfg gwt.ServerConfig, logger *slog.Logger) (*gwt.App, error) {
 		return c.NoContent(http.StatusNoContent)
 	})
 
-	// Handle is the generic verb registration: any method as a plain
-	// string, used here for a verb without its own dedicated method.
-	app.Handle(http.MethodOptions, "/items/{id}", func(c *gwt.Ctx) error {
+	app.OPTIONS("/items/{id}", func(c *gwt.Ctx) error {
 		c.SetHeader("Allow", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 		return c.NoContent(http.StatusNoContent)
 	})

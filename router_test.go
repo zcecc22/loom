@@ -10,11 +10,12 @@ func TestVerbHelpersRouteToCorrectHandlerAndPathValue(t *testing.T) {
 	a := mustNew(t)
 
 	verbs := map[string]func(string, Handler, ...Middleware){
-		http.MethodGet:    a.GET,
-		http.MethodPost:   a.POST,
-		http.MethodPut:    a.PUT,
-		http.MethodPatch:  a.PATCH,
-		http.MethodDelete: a.DELETE,
+		http.MethodGet:     a.GET,
+		http.MethodPost:    a.POST,
+		http.MethodPut:     a.PUT,
+		http.MethodPatch:   a.PATCH,
+		http.MethodDelete:  a.DELETE,
+		http.MethodOptions: a.OPTIONS,
 	}
 
 	for method, register := range verbs {
