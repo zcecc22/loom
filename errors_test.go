@@ -44,9 +44,9 @@ func TestCtxErrorCustomMessageAndUnknownCode(t *testing.T) {
 	}
 }
 
-func TestCtxErrorErrWrapsCauseAndUnwraps(t *testing.T) {
+func TestCtxErrorCauseWrapsCauseAndUnwraps(t *testing.T) {
 	cause := errors.New("row not found")
-	err := (&Ctx{}).ErrorErr(http.StatusNotFound, cause)
+	err := (&Ctx{}).ErrorCause(http.StatusNotFound, cause)
 
 	if !errors.Is(err, cause) {
 		t.Fatal("errors.Is could not see through the HTTPError to its cause")
@@ -54,7 +54,7 @@ func TestCtxErrorErrWrapsCauseAndUnwraps(t *testing.T) {
 
 	var httpErr *HTTPError
 	if !errors.As(err, &httpErr) {
-		t.Fatal("ErrorErr did not produce an *HTTPError")
+		t.Fatal("ErrorCause did not produce an *HTTPError")
 	}
 	if httpErr.Message != "Not Found" {
 		t.Fatalf("Message = %q, want the standard text (the cause must not become the message)", httpErr.Message)

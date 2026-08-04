@@ -15,7 +15,7 @@ import (
 // Err optionally carries the underlying cause. It is logged, never sent —
 // so wrapping an internal error is safe:
 //
-//	return c.ErrorErr(404, err)
+//	return c.ErrorCause(404, err)
 type HTTPError struct {
 	// Code is the HTTP status code to respond with.
 	Code int
@@ -57,9 +57,9 @@ func (c *Ctx) Error(code int, message ...string) error {
 	return &HTTPError{Code: code, Message: msg}
 }
 
-// ErrorErr builds an *HTTPError with the given status code wrapping err.
+// ErrorCause builds an *HTTPError with the given status code wrapping err.
 // The client sees only the standard text for code; err is logged.
-func (c *Ctx) ErrorErr(code int, err error) error {
+func (c *Ctx) ErrorCause(code int, err error) error {
 	return &HTTPError{Code: code, Message: statusMessage(code), Err: err}
 }
 

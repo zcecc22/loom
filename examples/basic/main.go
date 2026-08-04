@@ -6,7 +6,7 @@
 // Chain, the automatic Logging/Recover pair, and the opt-in
 // SecureHeaders/MaxBodySize/HSTS), the Ctx request/response helpers
 // (Param, Query, Bind, JSON, String, HTML, NoContent, Redirect), error
-// handling (returning an error, Ctx.Error, Ctx.ErrorErr, HTTPError), template
+// handling (returning an error, Ctx.Error, Ctx.ErrorCause, HTTPError), template
 // loading (LoadTemplates), static file serving (ServeStatic),
 // authentication (Authentication, Ctx.Identity), and both startup patterns (Run,
 // and Handler embedded in your own *http.Server or mux).
@@ -159,10 +159,10 @@ func newApp(cfg gwt.ServerConfig, logger *slog.Logger) (*gwt.App, error) {
 		return c.Error(http.StatusNotFound, "no such item")
 	})
 
-	// ErrorErr wraps an internal cause: the client sees the standard text
+	// ErrorCause wraps an internal cause: the client sees the standard text
 	// for the status, the cause goes to the log only.
 	app.GET("/missing-wrapped", func(c *gwt.Ctx) error {
-		return c.ErrorErr(http.StatusNotFound, errNoSuchItem)
+		return c.ErrorCause(http.StatusNotFound, errNoSuchItem)
 	})
 
 	// A plain error is a 500 whose detail never reaches the client.

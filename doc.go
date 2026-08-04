@@ -29,7 +29,7 @@
 // exported, so dropping down to plain net/http is always available.
 //
 // Returning an error is what keeps failure paths to one line. Ctx.Error
-// and Ctx.ErrorErr build an *HTTPError carrying a status code and a
+// and Ctx.ErrorCause build an *HTTPError carrying a status code and a
 // client-safe message; any other error becomes a 500 whose details are
 // logged but never sent:
 //

@@ -330,7 +330,7 @@ Every route handler takes a `*Ctx` and returns an `error`. `Ctx` carries the req
 | `c.SetHeader(k, v)` | Set a response header (before writing) |
 | `c.Written()` | Whether a response has already been committed |
 | `c.Error(status, message...)` | Build an `*HTTPError` — see [Errors](#errors) |
-| `c.ErrorErr(status, err)` | Build an `*HTTPError` wrapping a cause — see [Errors](#errors) |
+| `c.ErrorCause(status, err)` | Build an `*HTTPError` wrapping a cause — see [Errors](#errors) |
 
 `String` and `Stringf` are split rather than one variadic function so `go vet` can check format strings: with a single `String(status, format string, args ...any)`, vet infers a formatting wrapper and flags every non-constant argument, like `c.String(200, "hello "+user)`. The `f` suffix is what makes vet check the format instead of complaining about the call.
 
@@ -348,17 +348,17 @@ type HTTPError struct {
 }
 
 func (c *Ctx) Error(code int, message ...string) error
-func (c *Ctx) ErrorErr(code int, err error) error
+func (c *Ctx) ErrorCause(code int, err error) error
 ```
 
-`Error` and `ErrorErr` are `Ctx` methods, like every other response-related helper — every real call site already has a `c` in scope, since they're only ever called from inside a handler.
+`Error` and `ErrorCause` are `Ctx` methods, like every other response-related helper — every real call site already has a `c` in scope, since they're only ever called from inside a handler.
 
 Returning a non-nil error from a handler hands the response to the App's error handler. If an `*HTTPError` appears anywhere in the error chain, its status and message are used. Anything else becomes a **500 with a generic body** — the real error is logged and never reaches the client.
 
 ```go
 return c.Error(404)                    // 404 {"error":"Not Found"}
 return c.Error(404, "no such item")    // 404 {"error":"no such item"}
-return c.ErrorErr(404, err)            // 404 {"error":"Not Found"}, err logged
+return c.ErrorCause(404, err)          // 404 {"error":"Not Found"}, err logged
 return errors.New("db unreachable")    // 500 {"error":"Internal Server Error"}, logged
 return fmt.Errorf("loading: %w", c.Error(404, "gone")) // 404 — errors.As walks the chain
 ```
@@ -693,7 +693,7 @@ c.Logger() *slog.Logger
   	return func(c *gwt.Ctx) error {
   		item, err := store.Get(c.Param("id"))
   		if err != nil {
-  			return c.ErrorErr(404, err)
+  			return c.ErrorCause(404, err)
   		}
   		return c.JSON(200, item)
   	}
