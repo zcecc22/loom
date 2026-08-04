@@ -15,7 +15,7 @@ import (
 // Err optionally carries the underlying cause. It is logged, never sent —
 // so wrapping an internal error is safe:
 //
-//	return gwt.StatusErr(404, err)
+//	return c.ErrorErr(404, err)
 type HTTPError struct {
 	// Code is the HTTP status code to respond with.
 	Code int
@@ -39,12 +39,17 @@ func (e *HTTPError) Unwrap() error {
 	return e.Err
 }
 
-// Status builds an *HTTPError with the given status code. message is
+// Error builds an *HTTPError with the given status code. message is
 // optional and defaults to the standard text for code:
 //
-//	return gwt.Status(404)                  // "Not Found"
-//	return gwt.Status(404, "no such item")  // custom
-func Status(code int, message ...string) error {
+//	return c.Error(404)                  // "Not Found"
+//	return c.Error(404, "no such item")  // custom
+//
+// Error is a Ctx method, like every other response-related helper
+// (JSON, HTML, String, ...), even though it doesn't touch c.W/c.R
+// itself — every real call site already has a c in scope, since it's
+// only ever called from inside a Handler.
+func (c *Ctx) Error(code int, message ...string) error {
 	msg := statusMessage(code)
 	if len(message) > 0 {
 		msg = message[0]
@@ -52,9 +57,9 @@ func Status(code int, message ...string) error {
 	return &HTTPError{Code: code, Message: msg}
 }
 
-// StatusErr builds an *HTTPError with the given status code wrapping err.
+// ErrorErr builds an *HTTPError with the given status code wrapping err.
 // The client sees only the standard text for code; err is logged.
-func StatusErr(code int, err error) error {
+func (c *Ctx) ErrorErr(code int, err error) error {
 	return &HTTPError{Code: code, Message: statusMessage(code), Err: err}
 }
 

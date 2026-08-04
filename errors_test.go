@@ -10,12 +10,12 @@ import (
 	"testing"
 )
 
-func TestStatusUsesStandardTextByDefault(t *testing.T) {
-	err := Status(http.StatusNotFound)
+func TestCtxErrorUsesStandardTextByDefault(t *testing.T) {
+	err := (&Ctx{}).Error(http.StatusNotFound)
 
 	var httpErr *HTTPError
 	if !errors.As(err, &httpErr) {
-		t.Fatalf("Status did not produce an *HTTPError, got %T", err)
+		t.Fatalf("Error did not produce an *HTTPError, got %T", err)
 	}
 	if httpErr.Code != http.StatusNotFound {
 		t.Fatalf("Code = %d, want 404", httpErr.Code)
@@ -25,10 +25,10 @@ func TestStatusUsesStandardTextByDefault(t *testing.T) {
 	}
 }
 
-func TestStatusCustomMessageAndUnknownCode(t *testing.T) {
+func TestCtxErrorCustomMessageAndUnknownCode(t *testing.T) {
 	var httpErr *HTTPError
-	if !errors.As(Status(http.StatusNotFound, "no such item"), &httpErr) {
-		t.Fatal("Status did not produce an *HTTPError")
+	if !errors.As((&Ctx{}).Error(http.StatusNotFound, "no such item"), &httpErr) {
+		t.Fatal("Error did not produce an *HTTPError")
 	}
 	if httpErr.Message != "no such item" {
 		t.Fatalf("Message = %q, want the custom message", httpErr.Message)
@@ -36,17 +36,17 @@ func TestStatusCustomMessageAndUnknownCode(t *testing.T) {
 
 	// A code net/http has no text for must still yield a usable message.
 	var unknown *HTTPError
-	if !errors.As(Status(799), &unknown) {
-		t.Fatal("Status did not produce an *HTTPError for an unknown code")
+	if !errors.As((&Ctx{}).Error(799), &unknown) {
+		t.Fatal("Error did not produce an *HTTPError for an unknown code")
 	}
 	if unknown.Message == "" {
 		t.Fatal("Message is empty for a status code net/http does not know")
 	}
 }
 
-func TestStatusErrWrapsCauseAndUnwraps(t *testing.T) {
+func TestCtxErrorErrWrapsCauseAndUnwraps(t *testing.T) {
 	cause := errors.New("row not found")
-	err := StatusErr(http.StatusNotFound, cause)
+	err := (&Ctx{}).ErrorErr(http.StatusNotFound, cause)
 
 	if !errors.Is(err, cause) {
 		t.Fatal("errors.Is could not see through the HTTPError to its cause")
@@ -54,7 +54,7 @@ func TestStatusErrWrapsCauseAndUnwraps(t *testing.T) {
 
 	var httpErr *HTTPError
 	if !errors.As(err, &httpErr) {
-		t.Fatal("StatusErr did not produce an *HTTPError")
+		t.Fatal("ErrorErr did not produce an *HTTPError")
 	}
 	if httpErr.Message != "Not Found" {
 		t.Fatalf("Message = %q, want the standard text (the cause must not become the message)", httpErr.Message)
@@ -67,7 +67,7 @@ func TestStatusErrWrapsCauseAndUnwraps(t *testing.T) {
 func TestHTTPErrorSuppliesStatusAndMessage(t *testing.T) {
 	a := mustNew(t, AppConfig{Logger: discardLogger()})
 	rec := serve(t, a, func(c *Ctx) error {
-		return Status(http.StatusNotFound, "no such item")
+		return c.Error(http.StatusNotFound, "no such item")
 	}, httptest.NewRequest(http.MethodGet, "/t", nil))
 
 	if rec.Code != http.StatusNotFound {
@@ -83,7 +83,7 @@ func TestHTTPErrorFoundAnywhereInTheChain(t *testing.T) {
 	// that status, since errors.As walks the chain.
 	a := mustNew(t, AppConfig{Logger: discardLogger()})
 	rec := serve(t, a, func(c *Ctx) error {
-		return fmt.Errorf("loading item: %w", Status(http.StatusNotFound, "no such item"))
+		return fmt.Errorf("loading item: %w", c.Error(http.StatusNotFound, "no such item"))
 	}, httptest.NewRequest(http.MethodGet, "/t", nil))
 
 	if rec.Code != http.StatusNotFound {
@@ -118,7 +118,7 @@ func TestClientErrorsLogAtWarnAndServerErrorsAtError(t *testing.T) {
 	var buf bytes.Buffer
 	a := mustNew(t, AppConfig{Logger: jsonLogger(&buf)})
 	serve(t, a, func(c *Ctx) error {
-		return Status(http.StatusNotFound, "nope")
+		return c.Error(http.StatusNotFound, "nope")
 	}, httptest.NewRequest(http.MethodGet, "/t", nil))
 
 	if !strings.Contains(buf.String(), `"level":"WARN"`) {
@@ -240,7 +240,7 @@ func TestPanicAfterResponseCommittedDoesNotCorruptIt(t *testing.T) {
 func TestEveryErrorPathRendersTheSameShape(t *testing.T) {
 	a := mustNew(t, AppConfig{Logger: discardLogger()})
 	a.GET("/handler-error", func(c *Ctx) error {
-		return Status(http.StatusNotFound, "no such item")
+		return c.Error(http.StatusNotFound, "no such item")
 	})
 	a.GET("/panic", func(c *Ctx) error {
 		panic("boom")

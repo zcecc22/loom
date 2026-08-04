@@ -32,7 +32,7 @@ Scope, relative to v1:
 ├── doc.go                 Package doc: what gwt is/isn't, handler + middleware model
 ├── app.go                 App struct, AppConfig struct, New(), Use(), Logger(), Handler()
 ├── ctx.go                 Ctx, Handler, H — request/response helpers (the v3 core)
-├── errors.go              HTTPError, Status(), StatusErr(), App.handleError
+├── errors.go              HTTPError, Ctx.Error(), Ctx.ErrorErr(), App.handleError
 ├── router.go              GET/POST/PUT/PATCH/DELETE, Handle, HandleHTTP — flat routing
 ├── middleware.go          Middleware type, Chain(), App.Logging(), App.Recover(), statusWriter
 ├── server.go              Run()/RunContext(), graceful shutdown, startup/shutdown hooks
@@ -89,8 +89,8 @@ All symbols live in package `gwt` at the module root, except the scaffolder CLI 
 
 **`errors.go`**
 - `type HTTPError struct { Code int; Message string; Err error }` with `Error()` and `Unwrap()`. `Message` is client-visible; `Err` is logged, **never sent**.
-- `Status(code int, message ...string) error` — message defaults to the standard text for `code`.
-- `StatusErr(code int, err error) error` — wraps a cause; client sees only the standard text.
+- `Ctx.Error(code int, message ...string) error` — message defaults to the standard text for `code`. A `Ctx` method (not a package-level function, unlike v3's original `Status`) so it's consistent with every other response-related helper (`c.JSON`, `c.HTML`, ...) — every real call site already has a `c` in scope, since it's only ever called from inside a `Handler`. Doesn't touch `c.W`/`c.R`/`c.app`, so a zero-value `&Ctx{}` works fine for unit-testing it directly.
+- `Ctx.ErrorErr(code int, err error) error` — wraps a cause; client sees only the standard text.
 - `App.handleError` (unexported) — uses `AppConfig.ErrorHandler` if set, else `defaultErrorHandler`: `errors.As` finds an `*HTTPError` **anywhere in the chain** and uses its status/message; anything else is a 500 with a generic body. 4xx logs at Warn, 5xx at Error (so a bad URL can't fill the error log).
 - **The committed-response guard:** because `return c.JSON(...)` is the documented idiom, a handler can respond in full and *then* return an error (a write failure, a deferred cleanup). `handleError` checks `c.Written()` and only logs in that case — writing a second status would corrupt the response.
 

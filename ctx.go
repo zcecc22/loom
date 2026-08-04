@@ -21,12 +21,12 @@ type H map[string]any
 //	app.GET("/items/{id}", func(c *gwt.Ctx) error {
 //		item, err := store.Find(c.Param("id"))
 //		if err != nil {
-//			return gwt.Status(404, "no such item")
+//			return c.Error(404, "no such item")
 //		}
 //		return c.JSON(200, item)
 //	})
 //
-// See HTTPError and Status for controlling the status code a returned
+// See HTTPError and Ctx.Error for controlling the status code a returned
 // error produces; any other error becomes a 500.
 type Handler func(*Ctx) error
 

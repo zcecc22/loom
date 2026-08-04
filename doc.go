@@ -28,15 +28,15 @@
 // HTML, NoContent, Redirect on the way out — and its W and R fields stay
 // exported, so dropping down to plain net/http is always available.
 //
-// Returning an error is what keeps failure paths to one line. Status and
-// StatusErr build an *HTTPError carrying a status code and a client-safe
-// message; any other error becomes a 500 whose details are logged but
-// never sent:
+// Returning an error is what keeps failure paths to one line. Ctx.Error
+// and Ctx.ErrorErr build an *HTTPError carrying a status code and a
+// client-safe message; any other error becomes a 500 whose details are
+// logged but never sent:
 //
 //	app.GET("/items/{id}", func(c *gwt.Ctx) error {
 //		item, err := store.Find(c.Param("id"))
 //		if err != nil {
-//			return gwt.Status(404, "no such item")
+//			return c.Error(404, "no such item")
 //		}
 //		return c.JSON(200, item)
 //	})
