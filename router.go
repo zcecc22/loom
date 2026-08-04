@@ -81,7 +81,9 @@ func (a *App) muxErrorsAsJSON(next http.Handler) http.Handler {
 // handler's output.
 //
 // Statuses below 400 pass through untouched, which is what keeps stdlib's
-// trailing-slash and path-cleaning redirects (301) working.
+// trailing-slash and path-cleaning redirects working (a 3xx status,
+// specific code subject to change across Go versions — see
+// TestRedirectsAreNotRewrittenAsNotFound).
 //
 // It deliberately forwards only Unwrap, not Flusher/Hijacker/ReaderFrom
 // like statusWriter does: the only things that ever write through it are

@@ -303,9 +303,9 @@ func TestMethodNotAllowedKeepsStdlibAllowHeader(t *testing.T) {
 }
 
 // TestRedirectsAreNotRewrittenAsNotFound guards the sharp edge of the
-// pattern-lookup approach: stdlib answers some requests with a 301 rather
-// than a match, and mistaking those for "no route" would silently turn
-// every trailing-slash redirect into a 404.
+// pattern-lookup approach: stdlib answers some requests with a redirect
+// rather than a match, and mistaking those for "no route" would silently
+// turn every trailing-slash redirect into a 404.
 func TestRedirectsAreNotRewrittenAsNotFound(t *testing.T) {
 	a := New(AppConfig{Logger: discardLogger()})
 	a.GET("/dir/", func(c *Ctx) error { return c.String(http.StatusOK, "dir") })
@@ -317,8 +317,8 @@ func TestRedirectsAreNotRewrittenAsNotFound(t *testing.T) {
 		wantStatus int
 		wantLoc    string
 	}{
-		{"trailing-slash redirect", "/dir", http.StatusMovedPermanently, "/dir/"},
-		{"path cleaning redirect", "//dir//x", http.StatusMovedPermanently, "/dir/x"},
+		{"trailing-slash redirect", "/dir", http.StatusTemporaryRedirect, "/dir/"},
+		{"path cleaning redirect", "//dir//x", http.StatusTemporaryRedirect, "/dir/x"},
 		{"ordinary subtree match", "/dir/", http.StatusOK, ""},
 	}
 

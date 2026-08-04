@@ -2,7 +2,7 @@
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/zcecc22/go-web-toolkit.svg)](https://pkg.go.dev/github.com/zcecc22/go-web-toolkit)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Go Version](https://img.shields.io/badge/go-1.24.4%2B-00ADD8?logo=go&logoColor=white)](go.mod)
+[![Go Version](https://img.shields.io/badge/go-1.26.5%2B-00ADD8?logo=go&logoColor=white)](go.mod)
 
 `gwt` is a zero-dependency, stdlib-only toolkit that eliminates boilerplate around routing, middleware, server lifecycle, configuration, and JSON/HTML rendering for `net/http` applications. It is deliberately **not a framework**: there's no router DSL beyond what stdlib's `http.ServeMux` already gives you, no ORM, no dependency-injection container. It's a thin layer that makes writing a small, correct, deployable Go web service fast, without hiding `net/http` from you.
 
@@ -51,7 +51,7 @@ go get github.com/zcecc22/go-web-toolkit
 
 The import path is the module path above; the package name is `gwt` (they don't match — that's intentional, see [CLAUDE.md](CLAUDE.md)).
 
-Requires **Go 1.24.4 or newer** — that's the floor `go.mod` declares. (The route-pattern syntax used throughout this README, `GET /items/{id}`, depends on `http.ServeMux` enhancements that landed in Go 1.22; 1.24.4 is simply the actual minimum this module supports.)
+Requires **Go 1.26.5 or newer** — that's the floor `go.mod` declares. (The route-pattern syntax used throughout this README, `GET /items/{id}`, depends on `http.ServeMux` enhancements that landed in Go 1.22; 1.26.5 is simply the actual minimum this module supports.)
 
 ## Why gwt
 
@@ -682,7 +682,7 @@ go run .
 
 ...plus a full Docker deployment set:
 
-- **`Dockerfile`** — multi-stage build (`golang:1.24.4` → `alpine:latest`, `CGO_ENABLED=0`), copying `static/` into the runtime image (templates are embedded in the binary)
+- **`Dockerfile`** — multi-stage build (`golang:1.26.5` → `alpine:latest`, `CGO_ENABLED=0`), copying `static/` into the runtime image (templates are embedded in the binary)
 - **`docker-compose.yml`** — single service, `env_file: .env`, `restart: unless-stopped`
 - **`update_image`** — local rebuild-and-restart deploy script
 - **`.env.example`** — one line per `ServerConfig` field, plus the two demo `ADMIN_*` credentials

@@ -50,7 +50,7 @@ Scope, relative to v1:
 │       ├── main.go            Subcommand dispatcher + flags (-module, -port, -force)
 │       ├── scaffold.go        Embedded-FS manifest + template engine
 │       └── templates/         //go:embed all:templates — app source + Docker deploy files
-├── go.mod                 Go 1.24.4, zero external deps
+├── go.mod                 Go 1.26.5, zero external deps
 ├── README.md              User-facing docs — a step-by-step tutorial plus the full public API, with worked examples
 ├── CLAUDE.md              This file
 └── ISSUES.md              Prioritized backlog — read before proposing new work
@@ -107,7 +107,7 @@ All symbols live in package `gwt` at the module root, except the scaffolder CLI 
 - `App.Handle(method, pattern string, h Handler, mw ...Middleware)` — generic verb as a plain string; `method == ""` matches any verb. This is where the `Ctx` adapter lives.
 - `App.HandleHTTP(method, pattern string, h http.Handler, mw ...Middleware)` — the raw `net/http` escape hatch, bypassing `Ctx` entirely (third-party handlers, proxies, `http.FileServer`). `ServeStatic` and `Handle` both build on it. Its registered wrapper **steps out of `notFoundWriter`** before running the handler — see below.
 - `muxErrorsAsJSON` / `notFoundWriter` (unexported) — makes the mux's own plain-text 404/405 come out in gwt's JSON error shape. `Handler` installs `muxErrorsAsJSON` as the innermost global wrapper.
-  - **It works by elimination, not by asking the mux anything.** Every registered route steps out of `notFoundWriter` at the top of its `HandleHTTP` wrapper, so anything still writing through that wrapper is necessarily the mux answering for itself. Statuses below 400 pass through untouched, which is what keeps stdlib's trailing-slash and path-cleaning **301 redirects** working — mistaking one for "no route" would turn every such redirect into a 404.
+  - **It works by elimination, not by asking the mux anything.** Every registered route steps out of `notFoundWriter` at the top of its `HandleHTTP` wrapper, so anything still writing through that wrapper is necessarily the mux answering for itself. Statuses below 400 pass through untouched, which is what keeps stdlib's trailing-slash and path-cleaning **3xx redirects** working (the specific code has changed across Go versions — 301 under Go 1.24, 307 as of Go 1.26 — the mechanism doesn't care which) — mistaking one for "no route" would turn every such redirect into a 404.
   - **Do not replace this with a `ServeMux.Handler(r)` pattern lookup.** It reads more directly, and it was tried: `ServeMux.Handler` costs ~200ns/48B/2allocs, *as much as the entire `mux.ServeHTTP` it precedes*, on every request — to benefit only responses that 404. It also cannot be used to serve: the handler it returns does not populate path wildcards, so `Ctx.Param` silently returns `""`. `TestPathValuesSurviveTheNotFoundWrapper` guards that.
   - Stepping out also keeps a route's writer the fully-featured `statusWriter`, so `notFoundWriter` never sits in a streaming or hijacking path and needs only `Unwrap`, not the full optional-interface forwarding.
 
