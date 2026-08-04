@@ -16,7 +16,7 @@ func TestServeStaticServesFile(t *testing.T) {
 	}
 
 	a := mustNew(t, AppConfig{Logger: discardLogger()})
-	a.ServeStatic("/static/", dir)
+	a.ServeStatic("/static/", os.DirFS(dir))
 
 	rec := httptest.NewRecorder()
 	a.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/static/app.css", nil))
@@ -40,7 +40,7 @@ func TestServeStaticDirectoryWithoutIndexReturns404(t *testing.T) {
 	}
 
 	a := mustNew(t, AppConfig{Logger: discardLogger()})
-	a.ServeStatic("/static/", dir)
+	a.ServeStatic("/static/", os.DirFS(dir))
 
 	rec := httptest.NewRecorder()
 	a.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/static/nodir/", nil))
@@ -64,7 +64,7 @@ func TestServeStaticDirectoryWithIndexServesIt(t *testing.T) {
 	}
 
 	a := mustNew(t, AppConfig{Logger: discardLogger()})
-	a.ServeStatic("/static/", dir)
+	a.ServeStatic("/static/", os.DirFS(dir))
 
 	rec := httptest.NewRecorder()
 	a.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/static/withindex/", nil))
@@ -88,7 +88,7 @@ func TestServeStaticPathTraversalCannotEscapeDir(t *testing.T) {
 	}
 
 	a := mustNew(t, AppConfig{Logger: discardLogger()})
-	a.ServeStatic("/static/", dir)
+	a.ServeStatic("/static/", os.DirFS(dir))
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/static/../secret.txt", nil)

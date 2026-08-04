@@ -39,7 +39,7 @@ Scope, relative to v1:
 ├── config.go              ServerConfig struct, LoadServerConfig() (ServerConfig, error)
 ├── logging.go             NewLogger(env) *slog.Logger
 ├── render.go              App.LoadTemplates() + unexported serverError (http-level 500 path)
-├── static.go              App.ServeStatic() — directory serving, listing disabled by default
+├── static.go              App.ServeStatic() — fs.FS serving (disk or embedded), listing disabled by default
 ├── security.go            App.SecureHeaders()/MaxBodySize()/HSTS() — all opt-in
 ├── auth.go                App.Auth() + package-level Identity() — generic pluggable auth
 ├── *_test.go              Co-located tests for each file above
@@ -137,7 +137,7 @@ All symbols live in package `gwt` at the module root, except the scaffolder CLI 
 - `RenderJSON`/`RenderTemplate`/`RenderServerError` **no longer exist.** Use `c.JSON`/`c.HTML`. Don't reintroduce them.
 
 **`static.go`**
-- `App.ServeStatic(urlPrefix, dir string, mw ...Middleware)` — registers `GET <urlPrefix>` (a subtree pattern; the caller supplies the trailing `/`, e.g. `"/static/"` — no implicit pattern rewriting) serving files from `dir` via `http.FileServer`, routed through `HandleHTTP`. Wrapped in an unexported `noListingFileSystem` so a directory request without an `index.html` 404s instead of rendering a listing. Path-traversal confinement is inherited from `http.Dir.Open`, not re-implemented.
+- `App.ServeStatic(urlPrefix string, fsys fs.FS, mw ...Middleware)` — registers `GET <urlPrefix>` (a subtree pattern; the caller supplies the trailing `/`, e.g. `"/static/"` — no implicit pattern rewriting) serving files from `fsys` via `http.FileServer(http.FS(fsys))`, routed through `HandleHTTP`. `fsys` works with `os.DirFS("static")` (disk) or an embedded `//go:embed static` alike, the same pattern `LoadTemplates` already uses. Wrapped in an unexported `noListingFileSystem` so a directory request without an `index.html` 404s instead of rendering a listing. Path-traversal confinement is inherited from the `fs.FS` implementation (`os.DirFS`/`embed.FS` both confine every path to their root), not re-implemented.
 
 **`security.go`** — all three are opt-in via `Use` or route-level `mw`, never automatic: a header like `X-Frame-Options` can break a legitimate use case (intentional iframe embedding), so it isn't safe to force on every `App`.
 - `App.SecureHeaders() Middleware` — `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`. Deliberately omits `X-XSS-Protection` (deprecated; the legacy filter had vulnerabilities of its own) and `Content-Security-Policy`/`Permissions-Policy` (no safe one-size-fits-all default).

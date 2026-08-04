@@ -178,7 +178,10 @@ func newApp(cfg gwt.ServerConfig, logger *slog.Logger) (*gwt.App, error) {
 
 	// --- Static files ---
 
-	app.ServeStatic("/static/", "static")
+	// ServeStatic takes an fs.FS, so both os.DirFS (here — read from disk
+	// at the working directory) and an embedded //go:embed static work.
+	// The scaffold (cmd/gwt-cli) demonstrates the embedded form.
+	app.ServeStatic("/static/", os.DirFS("static"))
 
 	// HandleHTTP mounts a plain net/http handler, bypassing Ctx — the
 	// escape hatch for third-party handlers, proxies, and the like.
