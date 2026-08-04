@@ -9,10 +9,9 @@ RUN CGO_ENABLED=0 go build -o {{.Name}}
 FROM alpine:latest
 
 WORKDIR /app
+# templates/ and static/ are both embedded in the binary (see main.go),
+# so only the binary itself needs to be copied into the runtime image.
 COPY --from=build /app/{{.Name}} .
-# templates/ is embedded in the binary (see main.go); static/ is read from
-# disk by ServeStatic, so it still has to be copied.
-COPY --from=build /app/static ./static
 
 ENTRYPOINT ["./{{.Name}}"]
 EXPOSE {{.Port}}/tcp

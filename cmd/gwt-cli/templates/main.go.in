@@ -2,6 +2,7 @@ package main
 
 import (
 	"embed"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
@@ -9,21 +10,26 @@ import (
 	gwt "{{.GwtModule}}"
 )
 
-// templatesFS embeds the template set into the binary, so rendering works
-// regardless of the working directory. LoadTemplates accepts any fs.FS —
-// os.DirFS("templates") would read from disk instead.
+// templatesFS and staticFS embed their directories into the binary, so
+// the app runs correctly regardless of the working directory — no files
+// need to ship alongside it. LoadTemplates/ServeStatic accept any
+// fs.FS, so os.DirFS("templates")/os.DirFS("static") would read from
+// disk instead.
 //
 //go:embed templates
 var templatesFS embed.FS
 
+//go:embed static
+var staticFS embed.FS
+
 func main() {
-	cfg, err := gwt.LoadServerConfig()
+	// New loads ADDR/ENV/*_TIMEOUT from the environment itself — see
+	// .env.example for what it reads.
+	app, err := gwt.New()
 	if err != nil {
 		slog.Error("gwt: invalid config", "err", err)
 		os.Exit(1)
 	}
-
-	app := gwt.New(gwt.AppConfig{Server: cfg})
 
 	if err := app.LoadTemplates(templatesFS, "templates/*.tmpl"); err != nil {
 		app.Logger().Error("gwt: loading templates", "err", err)
@@ -31,11 +37,13 @@ func main() {
 	}
 
 	// SecureHeaders sets X-Content-Type-Options/X-Frame-Options/
-	// Referrer-Policy. MaxBodySize and HSTS are also available
-	// (app.MaxBodySize, app.HSTS) but aren't wired in by default — HSTS
-	// in particular is only correct once this app is actually served over
-	// HTTPS, which isn't true of a fresh scaffold running locally.
-	app.Use(app.SecureHeaders())
+	// Referrer-Policy; MaxBodySize caps request bodies. HSTS is only
+	// correct once this app is actually served over HTTPS, so it's gated
+	// on ENV=prod rather than always on.
+	app.Use(app.SecureHeaders(), app.MaxBodySize(1<<20))
+	if os.Getenv("ENV") == "prod" {
+		app.Use(app.HSTS())
+	}
 
 	app.GET("/", func(c *gwt.Ctx) error {
 		return c.JSON(http.StatusOK, gwt.H{"hello": "{{.Name}}"})
@@ -45,7 +53,15 @@ func main() {
 		return c.HTML(http.StatusOK, "index.tmpl", gwt.H{"Name": "{{.Name}}"})
 	})
 
-	app.ServeStatic("/static/", "static")
+	// fs.Sub strips the "static/" prefix go:embed leaves in staticFS's
+	// paths, so a URL like /static/style.css looks up "style.css" — the
+	// same relative shape os.DirFS("static") would produce from disk.
+	staticSub, err := fs.Sub(staticFS, "static")
+	if err != nil {
+		app.Logger().Error("gwt: static assets", "err", err)
+		os.Exit(1)
+	}
+	app.ServeStatic("/static/", staticSub)
 
 	// Returning an error from a handler renders it: an *HTTPError (from
 	// gwt.Status or gwt.StatusErr) supplies the status and a client-visible
@@ -57,19 +73,6 @@ func main() {
 		}
 		return c.JSON(http.StatusOK, gwt.H{"id": c.Param("id")})
 	})
-
-	adminUser := os.Getenv("ADMIN_USER")
-	adminPassword := os.Getenv("ADMIN_PASSWORD")
-	app.GET("/admin", func(c *gwt.Ctx) error {
-		user, _ := c.Identity()
-		return c.JSON(http.StatusOK, gwt.H{"logged_in_as": user})
-	}, app.Auth(func(r *http.Request) (string, bool) {
-		user, pass, ok := r.BasicAuth()
-		if !ok || user != adminUser || pass != adminPassword {
-			return "", false
-		}
-		return user, true
-	}))
 
 	if err := app.Run(); err != nil {
 		app.Logger().Error("server exited with error", "err", err)
