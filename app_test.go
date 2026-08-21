@@ -45,9 +45,9 @@ func TestNewWithNoArgument(t *testing.T) {
 
 func TestAppConfigPartialConfigFillsMissingFieldsWithDefaults(t *testing.T) {
 	clearServerConfigEnv(t)
-	a := New(AppConfig{Server: ServerConfig{Addr: ":9000"}})
+	a := New(AppConfig{Addr: ":9000"})
 
-	want := defaultServerConfig()
+	want := defaultServerConfig().server()
 	want.Addr = ":9000"
 	if a.cfg != want {
 		t.Fatalf("cfg = %+v, want %+v", a.cfg, want)
@@ -56,16 +56,16 @@ func TestAppConfigPartialConfigFillsMissingFieldsWithDefaults(t *testing.T) {
 
 func TestAppConfigEachTimeoutFieldIndependentlyOverridable(t *testing.T) {
 	clearServerConfigEnv(t)
-	a := New(AppConfig{Server: ServerConfig{
+	a := New(AppConfig{
 		ReadTimeout:       1 * time.Second,
 		ReadHeaderTimeout: 2 * time.Second,
 		WriteTimeout:      3 * time.Second,
 		IdleTimeout:       4 * time.Second,
 		ShutdownTimeout:   5 * time.Second,
-	}})
+	})
 
-	base := defaultServerConfig()
-	want := ServerConfig{
+	base := defaultServerConfig().server()
+	want := serverConfig{
 		Addr:              base.Addr,
 		Env:               base.Env,
 		ReadTimeout:       1 * time.Second,
@@ -82,7 +82,7 @@ func TestAppConfigEachTimeoutFieldIndependentlyOverridable(t *testing.T) {
 func TestAppConfigFullyResolvedConfigPassesThroughUnchanged(t *testing.T) {
 	// No clearServerConfigEnv guard needed: every field below is non-zero,
 	// so resolveServerConfig never falls through to the environment.
-	loaded := ServerConfig{
+	loaded := AppConfig{
 		Addr:              ":8080",
 		Env:               "prod",
 		ReadTimeout:       11 * time.Second,
@@ -92,10 +92,10 @@ func TestAppConfigFullyResolvedConfigPassesThroughUnchanged(t *testing.T) {
 		ShutdownTimeout:   15 * time.Second,
 	}
 
-	a := New(AppConfig{Server: loaded})
+	a := New(loaded)
 
-	if a.cfg != loaded {
-		t.Fatalf("cfg = %+v, want %+v (every field was already set, so nothing should change)", a.cfg, loaded)
+	if a.cfg != loaded.server() {
+		t.Fatalf("cfg = %+v, want %+v (every field was already set, so nothing should change)", a.cfg, loaded.server())
 	}
 }
 
@@ -109,9 +109,9 @@ func TestNewPicksUpEnvironmentAutomatically(t *testing.T) {
 
 func TestNewExplicitServerFieldOverridesEnvironment(t *testing.T) {
 	t.Setenv("ADDR", ":9191")
-	a := New(AppConfig{Server: ServerConfig{Addr: ":7000"}})
+	a := New(AppConfig{Addr: ":7000"})
 	if a.cfg.Addr != ":7000" {
-		t.Fatalf("cfg.Addr = %q, want :7000 (an explicit AppConfig.Server field should win over the environment)", a.cfg.Addr)
+		t.Fatalf("cfg.Addr = %q, want :7000 (an explicit AppConfig field should win over the environment)", a.cfg.Addr)
 	}
 }
 

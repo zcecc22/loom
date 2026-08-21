@@ -6,25 +6,28 @@ import (
 	"time"
 )
 
-// ServerConfig holds runtime configuration for an App's HTTP server.
-type ServerConfig struct {
-	// Addr is the address the server listens on, e.g. ":8000".
-	Addr string
-	// Env is the environment name (e.g. "dev", "prod"); it selects
-	// NewLogger's default handler format.
-	Env string
-
-	// ReadTimeout is http.Server.ReadTimeout.
-	ReadTimeout time.Duration
-	// ReadHeaderTimeout is http.Server.ReadHeaderTimeout.
+// serverConfig is the comparable subset of AppConfig's server-relevant
+// fields that App stores internally after New resolves them. AppConfig
+// itself is not comparable (it holds slice/func fields for OnStart,
+// OnShutdown, ErrorHandler, and BaseContext), so App keeps only this
+// narrower type rather than a full AppConfig.
+type serverConfig struct {
+	Addr, Env         string
+	ReadTimeout       time.Duration
 	ReadHeaderTimeout time.Duration
-	// WriteTimeout is http.Server.WriteTimeout.
-	WriteTimeout time.Duration
-	// IdleTimeout is http.Server.IdleTimeout.
-	IdleTimeout time.Duration
-	// ShutdownTimeout is the grace period RunContext gives in-flight
-	// requests to complete during a graceful shutdown.
-	ShutdownTimeout time.Duration
+	WriteTimeout      time.Duration
+	IdleTimeout       time.Duration
+	ShutdownTimeout   time.Duration
+}
+
+// server extracts c's 7 server-relevant fields into a serverConfig.
+func (c AppConfig) server() serverConfig {
+	return serverConfig{
+		Addr: c.Addr, Env: c.Env,
+		ReadTimeout: c.ReadTimeout, ReadHeaderTimeout: c.ReadHeaderTimeout,
+		WriteTimeout: c.WriteTimeout, IdleTimeout: c.IdleTimeout,
+		ShutdownTimeout: c.ShutdownTimeout,
+	}
 }
 
 const (
@@ -37,9 +40,10 @@ const (
 	defaultShutdownTimeout   = 10 * time.Second
 )
 
-// defaultServerConfig returns the ServerConfig used when nothing overrides it.
-func defaultServerConfig() ServerConfig {
-	return ServerConfig{
+// defaultServerConfig returns the AppConfig (only its 7 server-relevant
+// fields populated) used when nothing overrides it.
+func defaultServerConfig() AppConfig {
+	return AppConfig{
 		Addr:              defaultAddr,
 		Env:               defaultEnv,
 		ReadTimeout:       defaultReadTimeout,
@@ -50,38 +54,39 @@ func defaultServerConfig() ServerConfig {
 	}
 }
 
-// resolveServerConfig returns base with every zero-value field in c
-// replacing the corresponding field in base. New calls this with base set
-// to LoadServerConfig()'s result, so the effective precedence is: an
-// explicit AppConfig.Server field, then whatever the environment provided,
-// then (only if neither set it) the hardcoded default LoadServerConfig
-// itself would already have fallen back to. A zero timeout in c never
-// means "no timeout" in http.Server — it means "unset, keep base's value"
-// — so there's no way to explicitly request a zero timeout through
-// AppConfig. That trade-off is deliberate; it's not something to work
-// around.
-func resolveServerConfig(c, base ServerConfig) ServerConfig {
-	d := base
-	if c.Addr != "" {
-		d.Addr = c.Addr
+// resolveServerConfig returns c with every zero-value server field in c
+// replaced by the corresponding field in base; c's non-server fields
+// (Logger, Templates, ErrorHandler, ...) pass through unchanged, since base
+// (LoadServerConfig()'s result) never populates them. New calls this with
+// base set to LoadServerConfig()'s result, so the effective precedence is:
+// an explicit AppConfig field, then whatever the environment provided, then
+// (only if neither set it) the hardcoded default LoadServerConfig itself
+// would already have fallen back to. A zero timeout in c never means "no
+// timeout" in http.Server — it means "unset, keep base's value" — so
+// there's no way to explicitly request a zero timeout through AppConfig.
+// That trade-off is deliberate; it's not something to work around.
+func resolveServerConfig(c, base AppConfig) AppConfig {
+	d := c
+	if d.Addr == "" {
+		d.Addr = base.Addr
 	}
-	if c.Env != "" {
-		d.Env = c.Env
+	if d.Env == "" {
+		d.Env = base.Env
 	}
-	if c.ReadTimeout != 0 {
-		d.ReadTimeout = c.ReadTimeout
+	if d.ReadTimeout == 0 {
+		d.ReadTimeout = base.ReadTimeout
 	}
-	if c.ReadHeaderTimeout != 0 {
-		d.ReadHeaderTimeout = c.ReadHeaderTimeout
+	if d.ReadHeaderTimeout == 0 {
+		d.ReadHeaderTimeout = base.ReadHeaderTimeout
 	}
-	if c.WriteTimeout != 0 {
-		d.WriteTimeout = c.WriteTimeout
+	if d.WriteTimeout == 0 {
+		d.WriteTimeout = base.WriteTimeout
 	}
-	if c.IdleTimeout != 0 {
-		d.IdleTimeout = c.IdleTimeout
+	if d.IdleTimeout == 0 {
+		d.IdleTimeout = base.IdleTimeout
 	}
-	if c.ShutdownTimeout != 0 {
-		d.ShutdownTimeout = c.ShutdownTimeout
+	if d.ShutdownTimeout == 0 {
+		d.ShutdownTimeout = base.ShutdownTimeout
 	}
 	return d
 }
@@ -89,11 +94,14 @@ func resolveServerConfig(c, base ServerConfig) ServerConfig {
 // LoadServerConfig reads configuration from the environment: ADDR (default
 // ":8000"), ENV (default "dev"), READ_TIMEOUT (default 5s),
 // READ_HEADER_TIMEOUT (default 2s), WRITE_TIMEOUT (default 10s),
-// IDLE_TIMEOUT (default 120s), and SHUTDOWN_TIMEOUT (default 10s). A
-// malformed *_TIMEOUT value panics, naming the offending variable — a
-// construction-time misconfiguration, not a per-request condition, so it
-// fails loudly at setup rather than being swallowed into a runtime error.
-func LoadServerConfig() ServerConfig {
+// IDLE_TIMEOUT (default 120s), and SHUTDOWN_TIMEOUT (default 10s), into an
+// AppConfig with only those 7 fields populated. A malformed *_TIMEOUT value
+// panics, naming the offending variable — a construction-time
+// misconfiguration, not a per-request condition, so it fails loudly at
+// setup rather than being swallowed into a runtime error. The returned
+// AppConfig can be passed straight to New, or have further fields (Logger,
+// Templates, ...) set on it first.
+func LoadServerConfig() AppConfig {
 	cfg := defaultServerConfig()
 
 	if v := os.Getenv("ADDR"); v != "" {

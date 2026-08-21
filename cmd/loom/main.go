@@ -86,10 +86,10 @@ func runNew(args []string) error {
 }
 
 // generateDevCSRFSecret returns a fresh, base64url-encoded random secret,
-// unique to this scaffold invocation. Baked into the generated main.go as
-// a dev-only CSRF fallback (see main.go.in) — it lets a freshly scaffolded
-// project run CSRF-protected with zero setup, without every loom new
-// invocation sharing the same literal secret.
+// unique to this scaffold invocation. Baked into the generated .env's
+// CSRF_SECRET line (see templates/env.in), not into main.go — .env is
+// git-ignored, so this value never lands in source control, and the
+// generated main.go's dotenv loader picks it up automatically.
 func generateDevCSRFSecret() string {
 	b := make([]byte, 32)
 	// crypto/rand.Read never returns an error and always fills b entirely,

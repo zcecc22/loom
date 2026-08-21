@@ -10,7 +10,7 @@ import (
 func TestLoadServerConfigDefaults(t *testing.T) {
 	cfg := LoadServerConfig()
 	want := defaultServerConfig()
-	if cfg != want {
+	if cfg.server() != want.server() {
 		t.Fatalf("LoadServerConfig() = %+v, want %+v", cfg, want)
 	}
 }
@@ -25,7 +25,7 @@ func TestLoadServerConfigOverrides(t *testing.T) {
 	t.Setenv("SHUTDOWN_TIMEOUT", "5s")
 
 	cfg := LoadServerConfig()
-	want := ServerConfig{
+	want := AppConfig{
 		Addr:              ":9090",
 		Env:               "prod",
 		ReadTimeout:       time.Second,
@@ -34,7 +34,7 @@ func TestLoadServerConfigOverrides(t *testing.T) {
 		IdleTimeout:       4 * time.Second,
 		ShutdownTimeout:   5 * time.Second,
 	}
-	if cfg != want {
+	if cfg.server() != want.server() {
 		t.Fatalf("LoadServerConfig() = %+v, want %+v", cfg, want)
 	}
 }

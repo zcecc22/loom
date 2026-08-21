@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"embed"
 	"io/fs"
 	"net/http"
@@ -22,12 +23,40 @@ var templatesFS embed.FS
 //go:embed static
 var staticFS embed.FS
 
-// devCSRFSecret was generated uniquely for this project when it was
-// scaffolded (`loom new`) — see the CSRF wiring below for why it exists
-// and its limits.
-const devCSRFSecret = "{{.CSRFSecret}}"
+// loadDotEnv sets any KEY=VALUE line found in .env into the process
+// environment, but only for a key not already set — a real deployment's
+// actual environment variables (or Docker's env_file:-injected ones)
+// always take precedence over anything in a checked-out .env file. A
+// missing .env is not an error: it's the expected case for any deployment
+// that provisions its own environment instead of shipping one.
+func loadDotEnv(path string) {
+	f, err := os.Open(path)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		key = strings.TrimSpace(key)
+		if _, set := os.LookupEnv(key); set {
+			continue
+		}
+		_ = os.Setenv(key, strings.TrimSpace(value))
+	}
+}
 
 func main() {
+	loadDotEnv(".env")
+
 	// New loads ADDR/ENV/*_TIMEOUT from the environment itself — see
 	// .env.example for what it reads. A malformed *_TIMEOUT panics,
 	// naming the offending variable.
@@ -60,19 +89,16 @@ func main() {
 		app.Use(app.CORS(loom.CORSConfig{AllowedOrigins: allowed}))
 	}
 
-	// CSRF requires a signing secret with no safe default. devCSRFSecret
-	// was generated uniquely for this project by `loom new` (not shared
-	// with any other scaffolded app), so the app runs CSRF-protected out of
-	// the box for local dev with no setup — but it's baked into source, so
-	// it's not fit for a real deployment: ENV=prod requires a real
-	// CSRF_SECRET and fails fast at startup without one.
+	// CSRF requires a signing secret with no safe default. loom new already
+	// generated one into the git-ignored .env — see loadDotEnv above — so a
+	// freshly scaffolded project runs CSRF-protected with zero setup. A
+	// project checked out fresh from git has no .env (it's not committed)
+	// and must provision CSRF_SECRET itself before it will start, in dev or
+	// prod alike — there's no source-baked fallback to fall back to.
 	secret := os.Getenv("CSRF_SECRET")
 	if secret == "" {
-		if os.Getenv("ENV") == "prod" {
-			app.Logger().Error("loom: CSRF_SECRET is not set — see .env.example")
-			os.Exit(1)
-		}
-		secret = devCSRFSecret
+		app.Logger().Error("loom: CSRF_SECRET is not set — copy .env.example to .env (or set CSRF_SECRET in your real environment) and restart")
+		os.Exit(1)
 	}
 	app.Use(app.CSRF(loom.CSRFConfig{
 		Secret: []byte(secret),

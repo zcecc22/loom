@@ -1,6 +1,6 @@
 // Command basic is a single-file tour of every construct loom provides:
 // config loading (LoadServerConfig, NewLogger), full construction (AppConfig —
-// Server, Logger, Templates, ErrorHandler, OnStart, OnShutdown,
+// Addr/Env/timeouts, Logger, Templates, ErrorHandler, OnStart, OnShutdown,
 // BaseContext), all six routing verbs plus the generic Handle and the
 // net/http escape hatch HandleHTTP, middleware (Use, route-level mw,
 // Chain, the automatic Logging/Recover pair, and the opt-in
@@ -46,36 +46,34 @@ type Item struct {
 // errNoSuchItem stands in for whatever a real storage layer would return.
 var errNoSuchItem = errors.New("no such item")
 
-func newApp(cfg loom.ServerConfig, logger *slog.Logger) (*loom.App, error) {
-	// cfg is passed in explicitly here (built from LoadServerConfig in
-	// main, below) so the logger built from cfg.Env exists before the App
-	// does. New would already load the same environment on its own if cfg
-	// were left zero — passing it through here just makes that resolved
-	// value and this function's logger agree.
-	app := loom.New(loom.AppConfig{
-		Server: cfg,
-		Logger: logger,
-		OnStart: []func(context.Context) error{
-			func(ctx context.Context) error {
-				logger.Info("startup hook: warming up")
-				return nil
-			},
+func newApp(cfg loom.AppConfig, logger *slog.Logger) (*loom.App, error) {
+	// cfg is LoadServerConfig()'s result (from main, below), with Logger and
+	// the lifecycle hooks layered directly onto it — no wrapping field
+	// needed now that LoadServerConfig returns an AppConfig itself. New
+	// would already load the same environment on its own if cfg were left
+	// zero; passing it through here just makes that resolved value and this
+	// function's logger agree.
+	cfg.Logger = logger
+	cfg.OnStart = []func(context.Context) error{
+		func(ctx context.Context) error {
+			logger.Info("startup hook: warming up")
+			return nil
 		},
-		OnShutdown: []func(context.Context) error{
-			func(ctx context.Context) error {
-				logger.Info("shutdown hook: cleaning up")
-				return nil
-			},
+	}
+	cfg.OnShutdown = []func(context.Context) error{
+		func(ctx context.Context) error {
+			logger.Info("shutdown hook: cleaning up")
+			return nil
 		},
-		// BaseContext is deliberately independent from the context Run
-		// uses to trigger shutdown — conflating the two is a correctness
-		// bug, see CLAUDE.md's "Things to avoid". nil (the zero value)
-		// would already default to this; set explicitly here just to
-		// show the field.
-		BaseContext: func(net.Listener) context.Context {
-			return context.Background()
-		},
-	})
+	}
+	// BaseContext is deliberately independent from the context Run uses to
+	// trigger shutdown — conflating the two is a correctness bug, see
+	// CLAUDE.md's "Things to avoid". nil (the zero value) would already
+	// default to this; set explicitly here just to show the field.
+	cfg.BaseContext = func(net.Listener) context.Context {
+		return context.Background()
+	}
+	app := loom.New(cfg)
 
 	// Parsed once, here, rather than per request. Templates could equally
 	// have been passed as AppConfig.Templates above.
@@ -307,7 +305,7 @@ func main() {
 	// Run derives its shutdown-trigger context from OS signals and calls
 	// RunContext internally — call RunContext directly instead if you
 	// need your own cancellation source (e.g. a larger app's own
-	// shutdown signal). Run(":9000") would override ServerConfig.Addr.
+	// shutdown signal). Run(":9000") would override AppConfig.Addr.
 	if err := app.Run(); err != nil {
 		app.Logger().Error("server exited with error", "err", err)
 		os.Exit(1)

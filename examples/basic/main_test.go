@@ -16,7 +16,7 @@ import (
 // construct's edge cases in depth.
 func Example() {
 	logger := loom.NewLogger("dev")
-	app, err := newApp(loom.ServerConfig{Env: "dev"}, logger)
+	app, err := newApp(loom.AppConfig{Env: "dev"}, logger)
 	if err != nil {
 		fmt.Println("setup failed:", err)
 		return

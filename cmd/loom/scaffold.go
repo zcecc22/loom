@@ -25,7 +25,7 @@ type scaffoldData struct {
 	Module     string // Go module path for the new project
 	Port       int    // port the generated app listens on
 	LoomModule string // this toolkit's module path, for the go.mod require/import lines
-	CSRFSecret string // generated fresh per project, baked in as main.go's dev-only CSRF fallback
+	CSRFSecret string // generated fresh per project, baked into the generated .env's CSRF_SECRET line
 }
 
 // manifestEntry describes one file to emit. SrcPath is relative to
@@ -50,6 +50,7 @@ var manifest = []manifestEntry{
 	{"docker-compose.yml.in", "docker-compose.yml", true},
 	{"update_image.in", "update_image", true},
 	{"env.example.in", ".env.example", true},
+	{"env.in", ".env", true},
 	{"templates/index.tmpl", "templates/index.tmpl", false},
 	{"static/style.css", "static/style.css", false},
 }

@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"sync"
+	"time"
 )
 
 // App is a loom application: a stdlib http.ServeMux plus global middleware,
@@ -16,7 +17,7 @@ import (
 type App struct {
 	mux    *http.ServeMux
 	global []Middleware
-	cfg    ServerConfig
+	cfg    serverConfig
 	logger *slog.Logger
 
 	templates    *template.Template
@@ -38,13 +39,28 @@ type App struct {
 // builder and no functional options here: set the fields you care about
 // on a plain struct literal.
 type AppConfig struct {
-	// Server holds the HTTP server's address, environment, and timeouts.
-	// New already loads these from the environment on its own (see New);
-	// set a field here only to override what the environment provided (or
-	// the hardcoded default, if the environment didn't set it either).
-	Server ServerConfig
+	// Addr is the address the server listens on, e.g. ":8000". New already
+	// loads this from the environment itself (see New); set it here only to
+	// override what the environment provided (or the hardcoded default, if
+	// the environment didn't set it either). Same precedence for every
+	// field down through ShutdownTimeout below.
+	Addr string
+	// Env is the environment name (e.g. "dev", "prod"); it selects
+	// NewLogger's default handler format.
+	Env string
+	// ReadTimeout is http.Server.ReadTimeout.
+	ReadTimeout time.Duration
+	// ReadHeaderTimeout is http.Server.ReadHeaderTimeout.
+	ReadHeaderTimeout time.Duration
+	// WriteTimeout is http.Server.WriteTimeout.
+	WriteTimeout time.Duration
+	// IdleTimeout is http.Server.IdleTimeout.
+	IdleTimeout time.Duration
+	// ShutdownTimeout is the grace period RunContext gives in-flight
+	// requests to complete during a graceful shutdown.
+	ShutdownTimeout time.Duration
 
-	// Logger overrides the default logger built from NewLogger(Config.Env).
+	// Logger overrides the default logger built from NewLogger(cfg.Env).
 	Logger *slog.Logger
 
 	// Templates is the template set Ctx.HTML renders from. Setting it here
@@ -86,13 +102,13 @@ type AppConfig struct {
 // New loads its server config from the environment itself, via
 // LoadServerConfig — ADDR, ENV, and the *_TIMEOUT variables are picked up
 // automatically, with no separate call needed. Precedence is: an explicit
-// AppConfig.Server field, then the environment, then the hardcoded
-// default. This is the one thing that can make New panic: a malformed
-// *_TIMEOUT environment variable, same as LoadServerConfig's own
-// contract — a construction-time misconfiguration, not a per-request
-// condition, so it fails loudly at setup rather than being swallowed.
-// Anything else in cfg (e.g. a nonsensical BaseContext) is not validated
-// here and surfaces later, at Run/RunContext.
+// AppConfig field (Addr, Env, or one of the timeouts), then the
+// environment, then the hardcoded default. This is the one thing that can
+// make New panic: a malformed *_TIMEOUT environment variable, same as
+// LoadServerConfig's own contract — a construction-time misconfiguration,
+// not a per-request condition, so it fails loudly at setup rather than
+// being swallowed. Anything else in cfg (e.g. a nonsensical BaseContext)
+// is not validated here and surfaces later, at Run/RunContext.
 //
 // New unconditionally wires Logging and Recover as the App's global
 // middleware — there is no way to construct an App without them. Use Use
@@ -106,7 +122,7 @@ func New(cfg ...AppConfig) *App {
 
 	a := &App{
 		mux:           http.NewServeMux(),
-		cfg:           resolveServerConfig(c.Server, LoadServerConfig()),
+		cfg:           resolveServerConfig(c, LoadServerConfig()).server(),
 		logger:        c.Logger,
 		templates:     c.Templates,
 		errorHandler:  c.ErrorHandler,

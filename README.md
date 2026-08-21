@@ -76,14 +76,15 @@ go run .
 - `GET /page` and `POST /page` — `c.HTML` from an embedded template set, with a form demonstrating the full CSRF round-trip
 - `GET /items/{id}` — returning `c.Error(404, ...)` for anything but `1`
 - `GET /static/*` — `ServeStatic` over an embedded `static/style.css`
-- All five security middlewares: `SecureHeaders`+`MaxBodySize` applied globally, `HSTS` gated on `ENV=prod`, `CORS` wired when `ALLOWED_ORIGINS` is set, `CSRF` wired globally — its secret comes from `CSRF_SECRET` if set, else a fallback generated uniquely for this project at scaffold time (fine for local dev; `ENV=prod` requires a real `CSRF_SECRET` and refuses to start without one)
+- All five security middlewares: `SecureHeaders`+`MaxBodySize` applied globally, `HSTS` gated on `ENV=prod`, `CORS` wired when `ALLOWED_ORIGINS` is set, `CSRF` wired globally — its secret comes from `CSRF_SECRET`, which `loom new` already generated into the git-ignored `.env` (a project cloned from git without its own `.env` fails fast at startup, in dev or prod, until one is provisioned)
 
 ...plus a full Docker deployment set:
 
 - **`Dockerfile`** — multi-stage build (`golang:1.26.5` → `alpine:latest`, `CGO_ENABLED=0`); both `templates/` and `static/` are embedded in the binary, so only the binary itself is copied into the runtime image
 - **`docker-compose.yml`** — single service, `env_file: .env`, `restart: unless-stopped`
 - **`update_image`** — local rebuild-and-restart deploy script
-- **`.env.example`** — one line per `ServerConfig` field, plus `ALLOWED_ORIGINS` and `CSRF_SECRET`
+- **`.env.example`** — one line per `AppConfig` server field (`Addr`, `Env`, the five timeouts), plus `ALLOWED_ORIGINS` and `CSRF_SECRET`, documenting the shape for a real deployment
+- **`.env`** — the same shape, pre-filled with real local-dev defaults and a freshly generated `CSRF_SECRET`; git-ignored, loaded automatically by the generated `main.go` (real environment variables always take precedence) — makes `go run .` fully CSRF-protected with zero setup
 - **`.dockerignore`**
 
 Flags: `-module <path>` (Go module path, default the project name), `-port <num>` (default `8000`), `-force` (overwrite an existing non-empty directory). Flags go before the name:
@@ -404,7 +405,10 @@ There's no functional-options layer here: `AppConfig` is a plain struct. Set the
 
 ```go
 type AppConfig struct {
-	Server       ServerConfig // Addr, Env, and timeouts — see Configuration below
+	Addr, Env                                    string
+	ReadTimeout, ReadHeaderTimeout, WriteTimeout time.Duration
+	IdleTimeout, ShutdownTimeout                 time.Duration
+
 	Logger       *slog.Logger
 	Templates    *template.Template
 	ErrorHandler func(*Ctx, error)
@@ -416,7 +420,7 @@ type AppConfig struct {
 
 | Field | Effect |
 |---|---|
-| `Server` | Address, environment, and timeouts. Precedence: this field (where non-zero) > the environment > the hardcoded default. |
+| `Addr`, `Env`, `ReadTimeout`, `ReadHeaderTimeout`, `WriteTimeout`, `IdleTimeout`, `ShutdownTimeout` | Address, environment, and timeouts. Precedence: this field (where non-zero) > the environment > the hardcoded default — see Configuration below |
 | `Logger` | Override the default logger |
 | `Templates` | A pre-parsed template set, if you'd rather not use `LoadTemplates` |
 | `ErrorHandler` | Override how a returned error becomes a response |
@@ -431,8 +435,8 @@ app := loom.New() // reads ADDR/ENV/*_TIMEOUT from the environment; hardcoded de
 ```
 
 ```go
-// An explicit Server field wins over whatever the environment set.
-app := loom.New(loom.AppConfig{Server: loom.ServerConfig{Addr: ":9000"}})
+// An explicit field wins over whatever the environment set.
+app := loom.New(loom.AppConfig{Addr: ":9000"})
 ```
 
 ```go
@@ -449,16 +453,10 @@ app := loom.New(loom.AppConfig{
 #### Configuration
 
 ```go
-type ServerConfig struct {
-	Addr, Env string
-	ReadTimeout, ReadHeaderTimeout, WriteTimeout time.Duration
-	IdleTimeout, ShutdownTimeout                 time.Duration
-}
-
-func LoadServerConfig() ServerConfig
+func LoadServerConfig() AppConfig
 ```
 
-This is what `New` calls internally on every construction — you don't normally need to call it yourself. `LoadServerConfig` reads from the environment and panics (naming the offending variable) if a `*_TIMEOUT` value is set but unparsable:
+This is what `New` calls internally on every construction — you don't normally need to call it yourself. It returns an `AppConfig` with only its 7 server fields populated (see the struct above); everything else is left zero for you to fill in. `LoadServerConfig` reads from the environment and panics (naming the offending variable) if a `*_TIMEOUT` value is set but unparsable:
 
 | Env var | Default |
 |---|---|
@@ -470,12 +468,12 @@ This is what `New` calls internally on every construction — you don't normally
 | `IDLE_TIMEOUT` | `120s` |
 | `SHUTDOWN_TIMEOUT` | `10s` |
 
-It stays exported for the case where you want the resolved config *before* an `App` exists — e.g. to build your own logger from `cfg.Env` ahead of time, or to log the resolved address before binding it:
+It stays exported for the case where you want the resolved config *before* an `App` exists — e.g. to build your own logger from `cfg.Env` ahead of time, or to log the resolved address before binding it. Since it already returns an `AppConfig`, there's no wrapping field needed to pass it on to `New` — just set whatever else you need directly on the result:
 
 ```go
 cfg := loom.LoadServerConfig()
-logger := loom.NewLogger(cfg.Env)
-app := loom.New(loom.AppConfig{Server: cfg, Logger: logger})
+cfg.Logger = loom.NewLogger(cfg.Env)
+app := loom.New(cfg)
 ```
 
 ### Server lifecycle
@@ -485,9 +483,9 @@ app.Run(addr ...string) error
 app.RunContext(ctx context.Context, addr ...string) error
 ```
 
-`Run` is a convenience that triggers shutdown on `SIGINT`/`SIGTERM`. `RunContext` triggers shutdown when `ctx` is done. `addr` is optional and overrides `ServerConfig.Addr` when given, so `app.Run(":8080")` works directly.
+`Run` is a convenience that triggers shutdown on `SIGINT`/`SIGTERM`. `RunContext` triggers shutdown when `ctx` is done. `addr` is optional and overrides `AppConfig.Addr` when given, so `app.Run(":8080")` works directly.
 
-Either way: on shutdown, in-flight requests get up to `ServerConfig.ShutdownTimeout` to finish before the server closes; `AppConfig.OnShutdown` hooks then run in **LIFO** order (last registered, first run — symmetric with `defer`), each one always running regardless of earlier failures. `AppConfig.OnStart` hooks run in **FIFO** order before the server starts serving; the first error aborts startup. A panicking hook becomes an error, not a process crash. Both functions return `nil` on a clean shutdown, never `http.ErrServerClosed`.
+Either way: on shutdown, in-flight requests get up to `AppConfig.ShutdownTimeout` to finish before the server closes; `AppConfig.OnShutdown` hooks then run in **LIFO** order (last registered, first run — symmetric with `defer`), each one always running regardless of earlier failures. `AppConfig.OnStart` hooks run in **FIFO** order before the server starts serving; the first error aborts startup. A panicking hook becomes an error, not a process crash. Both functions return `nil` on a clean shutdown, never `http.ErrServerClosed`.
 
 ### Routing
 
@@ -516,32 +514,6 @@ app.OPTIONS("/items/{id}", func(c *loom.Ctx) error {
 
 app.HandleHTTP("GET", "/metrics", promHandler) // any http.Handler
 ```
-
-### Middleware
-
-```go
-type Middleware func(http.Handler) http.Handler
-
-func Chain(mw ...Middleware) Middleware
-app.Logging() Middleware
-app.Recover() Middleware
-app.Use(mw ...Middleware)
-```
-
-Middleware is plain `net/http`, **not** `Ctx`-based. That's deliberate: global middleware also covers the mux's own 404/405 responses, and those requests never match a route — so there's no `Ctx` to give them. Keeping the stdlib shape also means any middleware written for `net/http` composes with loom directly.
-
-`Chain(A, B, C)` composes so declared order equals request-flow order: `A` runs first. `app.Logging()` and `app.Recover()` are the built-in middleware `New` already wires for you; call them yourself only if you're doing something unusual. `app.Use(mw...)` adds anything beyond the defaults — it appends, stacked *after* logging/recovery (closer to the handler), so a panic or early exit inside your own middleware is still caught and logged.
-
-**Fixed request-flow order:** `Logging → Recover → Use-added (in call order) → route-level mw → handler`.
-
-```go
-app := loom.New()
-app.Use(app.SecureHeaders())
-
-app.GET("/admin", adminHandler, requireRole("admin"))
-```
-
-> Call `Use` before serving starts. The middleware chain is composed once, on the first request, and cached — a `Use` after that point has no effect.
 
 ### Templates
 
@@ -603,7 +575,42 @@ app.ServeStatic("/static/", staticSub)
 
 Note that a disk-backed `fsys` is read relative to the working directory at request time — unlike an embedded one, it needs to ship alongside the binary.
 
-### Security
+### Middleware
+
+```go
+type Middleware func(http.Handler) http.Handler
+
+func Chain(mw ...Middleware) Middleware
+app.Use(mw ...Middleware)
+```
+
+Middleware is plain `net/http`, **not** `Ctx`-based. That's deliberate: global middleware also covers the mux's own 404/405 responses, and those requests never match a route — so there's no `Ctx` to give them. Keeping the stdlib shape also means any middleware written for `net/http` composes with loom directly.
+
+`Chain(A, B, C)` composes so declared order equals request-flow order: `A` runs first. `app.Use(mw...)` adds middleware beyond the always-on pair below — it appends, stacked *after* them (closer to the handler), so a panic or early exit inside your own middleware is still caught and logged.
+
+**Fixed request-flow order:** `Logging → Recover → Use-added (in call order) → route-level mw → handler`.
+
+```go
+app := loom.New()
+app.Use(app.SecureHeaders())
+
+app.GET("/admin", adminHandler, requireRole("admin"))
+```
+
+> Call `Use` before serving starts. The middleware chain is composed once, on the first request, and cached — a `Use` after that point has no effect.
+
+The rest of this section covers every concrete middleware loom ships, always-on first, then opt-in.
+
+#### Logging and Recover
+
+```go
+app.Logging() Middleware
+app.Recover() Middleware
+```
+
+`app.Logging()` and `app.Recover()` are the built-in middleware `New` already wires for you; call them yourself only if you're doing something unusual.
+
+#### Security
 
 ```go
 app.SecureHeaders() Middleware // X-Content-Type-Options, X-Frame-Options, Referrer-Policy
@@ -625,7 +632,7 @@ if os.Getenv("ENV") == "prod" {
 }
 ```
 
-### CORS
+#### CORS
 
 ```go
 type CORSConfig struct {
@@ -652,7 +659,7 @@ app.Use(app.CORS(loom.CORSConfig{
 }))
 ```
 
-### CSRF
+#### CSRF
 
 ```go
 type CSRFConfig struct {
@@ -696,7 +703,7 @@ app.POST("/form", func(c *loom.Ctx) error {
 
 If you also use `CORS`: `SameSite=Lax` means the CSRF cookie is never sent on a cross-site subrequest, so a credentialed cross-origin write (`CORSConfig.AllowCredentials`) fails at the cookie-never-arrives stage, not the token stage — this `CSRF` targets same-site form/AJAX flows, not credentialed cross-origin APIs. And if `CORSConfig.AllowedHeaders` is set explicitly, it must include `X-CSRF-Token` or a cross-origin CSRF-protected write fails as a CORS rejection instead of a CSRF 403.
 
-### Authentication
+#### Authentication
 
 ```go
 app.Authentication(authenticate func(r *http.Request) (identity string, ok bool)) Middleware
@@ -729,7 +736,7 @@ The package-level `loom.Identity(r)` does the same thing for code that holds onl
 
 `Authentication`'s 401 uses the same JSON error shape as every other loom error — see [Error shape](#error-shape).
 
-### Logging
+### Logger
 
 ```go
 func NewLogger(env string) *slog.Logger
