@@ -1,8 +1,10 @@
 package loom
 
 import (
+	"bufio"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -118,6 +120,52 @@ func LoadServerConfig() AppConfig {
 	cfg.ShutdownTimeout = durationEnv("SHUTDOWN_TIMEOUT", cfg.ShutdownTimeout)
 
 	return cfg
+}
+
+// LoadDotEnv reads KEY=VALUE lines from path into the process environment,
+// skipping blank/comment lines and never overriding a key that's already
+// set — presence, not truthiness, decides, so a real deployment's or
+// Docker's env_file:-injected variables always win over a checked-out .env
+// file. Call it before New or LoadServerConfig, since both read the
+// environment themselves. A missing file is not an error; any other
+// Open/Setenv/scan error is returned. A value wrapped in matching quotes
+// has them stripped.
+func LoadDotEnv(path string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		eq := strings.IndexByte(line, '=')
+		if eq <= 0 {
+			continue
+		}
+		key := strings.TrimSpace(line[:eq])
+		val := strings.TrimSpace(line[eq+1:])
+		if len(val) >= 2 {
+			first, last := val[0], val[len(val)-1]
+			if (first == '"' && last == '"') || (first == '\'' && last == '\'') {
+				val = val[1 : len(val)-1]
+			}
+		}
+		if _, present := os.LookupEnv(key); present {
+			continue
+		}
+		if err := os.Setenv(key, val); err != nil {
+			return err
+		}
+	}
+	return scanner.Err()
 }
 
 // durationEnv reads key from the environment as a time.Duration, returning

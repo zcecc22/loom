@@ -263,6 +263,26 @@ func newApp(cfg loom.AppConfig, logger *slog.Logger) (*loom.App, error) {
 		return user, true
 	}))
 
+	// AuthenticationRedirect is Authentication's redirect-mode sibling, for
+	// a full-page-reload UI where a JSON 401 body isn't useful to a browser
+	// navigation: a failed check 303s to LoginPath instead.
+	app.GET("/login", func(c *loom.Ctx) error {
+		return c.String(http.StatusOK, "log in here")
+	})
+	app.GET("/admin-redirect", func(c *loom.Ctx) error {
+		user, _ := c.Identity()
+		return c.JSON(http.StatusOK, loom.H{"logged_in_as": user})
+	}, app.AuthenticationRedirect(loom.AuthenticationRedirectConfig{
+		Authenticate: func(r *http.Request) (string, bool) {
+			user, pass, ok := r.BasicAuth()
+			if !ok || user != adminUser || pass != adminPassword {
+				return "", false
+			}
+			return user, true
+		},
+		LoginPath: "/login",
+	}))
+
 	return app, nil
 }
 

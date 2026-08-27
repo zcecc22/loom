@@ -7,6 +7,9 @@ import "net/http"
 // mw (route-level, innermost — closest to h).
 //
 // Per stdlib ServeMux, a GET pattern also matches HEAD requests.
+//
+// A pattern of exactly "/" is a subtree match, not an exact-root match —
+// see Handle.
 func (a *App) GET(pattern string, h Handler, mw ...Middleware) {
 	a.Handle(http.MethodGet, pattern, h, mw...)
 }
@@ -43,6 +46,13 @@ func (a *App) OPTIONS(pattern string, h Handler, mw ...Middleware) {
 // dedicated method (e.g. TRACE) or when the verb is only known at
 // runtime. mw wraps h only, not the whole App — see Use for whole-app
 // middleware.
+//
+// Patterns are exactly stdlib ServeMux syntax, including its subtree-match
+// behavior: a pattern of exactly "/" matches every request that isn't
+// matched by anything more specific — not just the exact root. Use "/{$}"
+// to match only the exact root path. loom does no pattern rewriting of its
+// own (see ServeStatic's note on this) — this is stdlib's behavior
+// verbatim.
 func (a *App) Handle(method, pattern string, h Handler, mw ...Middleware) {
 	// The Ctx is built here, inside the route's own handler, so it exists
 	// only for requests that actually matched a route. Middleware stays

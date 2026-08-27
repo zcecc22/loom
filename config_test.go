@@ -2,6 +2,8 @@ package loom
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -72,5 +74,77 @@ func TestLoadServerConfigMalformedDurationEachField(t *testing.T) {
 			}()
 			LoadServerConfig()
 		})
+	}
+}
+
+func TestLoadDotEnvSetsUnsetVars(t *testing.T) {
+	envPath := filepath.Join(t.TempDir(), ".env")
+	if err := os.WriteFile(envPath, []byte("LOOM_TEST_DOTENV_UNSET=from-dotenv\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Unsetenv("LOOM_TEST_DOTENV_UNSET") })
+
+	if err := LoadDotEnv(envPath); err != nil {
+		t.Fatalf("LoadDotEnv: %v", err)
+	}
+	if got := os.Getenv("LOOM_TEST_DOTENV_UNSET"); got != "from-dotenv" {
+		t.Fatalf("LOOM_TEST_DOTENV_UNSET = %q, want %q", got, "from-dotenv")
+	}
+}
+
+func TestLoadDotEnvDoesNotOverrideAlreadySetVars(t *testing.T) {
+	envPath := filepath.Join(t.TempDir(), ".env")
+	if err := os.WriteFile(envPath, []byte("LOOM_TEST_DOTENV_SET=from-dotenv\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// An exported-but-empty real env var must still win -- presence, not
+	// truthiness, decides.
+	t.Setenv("LOOM_TEST_DOTENV_SET", "")
+
+	if err := LoadDotEnv(envPath); err != nil {
+		t.Fatalf("LoadDotEnv: %v", err)
+	}
+	if got := os.Getenv("LOOM_TEST_DOTENV_SET"); got != "" {
+		t.Fatalf("expected the already-set empty value to win, got %q", got)
+	}
+}
+
+func TestLoadDotEnvMissingFileIsNotAnError(t *testing.T) {
+	if err := LoadDotEnv(filepath.Join(t.TempDir(), "nonexistent", ".env")); err != nil {
+		t.Fatalf("expected no error for a missing .env, got %v", err)
+	}
+}
+
+func TestLoadDotEnvOtherOpenErrorIsReturned(t *testing.T) {
+	// A path with a non-directory component (a file where a directory is
+	// expected) fails with ENOTDIR, not ENOENT -- os.IsNotExist reports
+	// false for it, so it must be returned rather than silently swallowed.
+	notADir := filepath.Join(t.TempDir(), "not-a-dir")
+	if err := os.WriteFile(notADir, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := LoadDotEnv(filepath.Join(notADir, ".env"))
+	if err == nil {
+		t.Fatal("expected an error, got nil")
+	}
+	if os.IsNotExist(err) {
+		t.Fatalf("expected a non-ENOENT error, got %v", err)
+	}
+}
+
+func TestLoadDotEnvStripsQuotesAndSkipsCommentsAndBlankLines(t *testing.T) {
+	envPath := filepath.Join(t.TempDir(), ".env")
+	content := "# a comment\n\nLOOM_TEST_DOTENV_QUOTED=\"quoted value\"\nmalformed line with no equals\n"
+	if err := os.WriteFile(envPath, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Unsetenv("LOOM_TEST_DOTENV_QUOTED") })
+
+	if err := LoadDotEnv(envPath); err != nil {
+		t.Fatalf("LoadDotEnv: %v", err)
+	}
+	if got := os.Getenv("LOOM_TEST_DOTENV_QUOTED"); got != "quoted value" {
+		t.Fatalf("LOOM_TEST_DOTENV_QUOTED = %q, want %q", got, "quoted value")
 	}
 }

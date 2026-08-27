@@ -120,3 +120,37 @@ func TestEndToEndDefaultAndUseMiddlewareOrder(t *testing.T) {
 		}
 	}
 }
+
+// TestHandleBareSlashIsSubtreeMatchNotExactRoot pins that loom does no
+// pattern rewriting of its own: a route registered at "/" is stdlib's
+// subtree wildcard and silently absorbs every otherwise-unmatched path,
+// while "/{$}" matches only the exact root and leaves an unmatched path to
+// reach loom's own JSON 404. This is stdlib ServeMux behavior, not
+// loom-specific logic, but a real production bug (a "/" dashboard route
+// swallowing unrelated paths) was hit downstream of this library, so it's
+// worth guarding here too.
+func TestHandleBareSlashIsSubtreeMatchNotExactRoot(t *testing.T) {
+	a := New(AppConfig{Logger: discardLogger()})
+	a.GET("/", func(c *Ctx) error { return c.String(http.StatusOK, "root") })
+
+	rec := httptest.NewRecorder()
+	a.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/totally-unmatched", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("bare \"/\" should subtree-match /totally-unmatched, got %d", rec.Code)
+	}
+
+	b := New(AppConfig{Logger: discardLogger()})
+	b.GET("/{$}", func(c *Ctx) error { return c.String(http.StatusOK, "root") })
+
+	rec2 := httptest.NewRecorder()
+	b.ServeHTTP(rec2, httptest.NewRequest(http.MethodGet, "/totally-unmatched", nil))
+	if rec2.Code != http.StatusNotFound {
+		t.Fatalf("\"/{$}\" should not subtree-match /totally-unmatched, got %d", rec2.Code)
+	}
+
+	rec3 := httptest.NewRecorder()
+	b.ServeHTTP(rec3, httptest.NewRequest(http.MethodGet, "/", nil))
+	if rec3.Code != http.StatusOK {
+		t.Fatalf("\"/{$}\" should still match the exact root, got %d", rec3.Code)
+	}
+}

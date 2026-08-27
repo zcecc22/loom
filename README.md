@@ -476,6 +476,19 @@ cfg.Logger = loom.NewLogger(cfg.Env)
 app := loom.New(cfg)
 ```
 
+```go
+func LoadDotEnv(path string) error
+```
+
+Reads `KEY=VALUE` lines from a `.env` file into the process environment — call it **before** `New()` or `LoadServerConfig()`, since both read the environment themselves. A key already set in the real environment is left untouched (presence, not truthiness, decides — an exported-but-empty variable still wins), so a `.env` checked into a repo never overrides a real deployment's or Docker's `env_file:`-injected configuration. A missing file is not an error; a value wrapped in matching quotes has them stripped. Any other error (e.g. a permissions problem) is returned:
+
+```go
+if err := loom.LoadDotEnv(".env"); err != nil {
+	log.Fatalf("loading .env: %v", err)
+}
+app := loom.New()
+```
+
 ### Server lifecycle
 
 ```go
@@ -501,6 +514,15 @@ app.HandleHTTP(method, pattern string, h http.Handler, mw ...Middleware)
 ```
 
 Patterns are exactly stdlib `http.ServeMux` syntax — `"/items/{id}"`, read with `c.Param("id")`. There is no route grouping or prefixing; write the full path at each call site.
+
+A pattern of exactly `"/"` is a stdlib **subtree match** — it catches every request that doesn't match anything more specific, not just an exact request for `/`. Use `"/{$}"` for exact-root-only matching:
+
+```go
+app.GET("/", dashboard)       // also matches "/anything/unmatched"
+app.GET("/{$}", dashboard)    // matches only the exact root
+```
+
+This is stdlib `http.ServeMux` behavior, not something loom adds or rewrites — see also [Static files](#static-files), whose `urlPrefix` is a subtree pattern for the same reason.
 
 `Handle` is the generic form: pass the verb as a string (works for anything without a dedicated method, e.g. `"TRACE"`), or `""` to match any verb. There's no dedicated `HEAD` method because stdlib already matches HEAD requests against a `GET` pattern.
 
@@ -735,6 +757,30 @@ The package-level `loom.Identity(r)` does the same thing for code that holds onl
 `loom` doesn't provide a built-in Basic/Bearer/session implementation — `authenticate` is where you plug in whichever scheme you need. This also means `loom` doesn't issue, sign, or store sessions; `Authentication` is a building block for session-based auth, not a session framework. (CSRF protection itself is a separate, already-built middleware — see [CSRF](#csrf) above — it doesn't need a session store, since it uses the stateless double-submit cookie pattern.)
 
 `Authentication`'s 401 uses the same JSON error shape as every other loom error — see [Error shape](#error-shape).
+
+`AuthenticationRedirect` is `Authentication`'s redirect-mode sibling, for a full-page-reload UI where a failed check should send the browser to a login page instead of returning a JSON 401:
+
+```go
+app.AuthenticationRedirect(cfg AuthenticationRedirectConfig) Middleware
+```
+
+```go
+app.GET("/admin", func(c *loom.Ctx) error {
+	user, _ := c.Identity()
+	return c.JSON(200, loom.H{"logged_in_as": user})
+}, app.AuthenticationRedirect(loom.AuthenticationRedirectConfig{
+	Authenticate: func(r *http.Request) (string, bool) {
+		user, pass, ok := r.BasicAuth()
+		if !ok || !validCredentials(user, pass) {
+			return "", false
+		}
+		return user, true
+	},
+	LoginPath: "/login",
+}))
+```
+
+`LoginPath` is required and must be a local path (starts with `/`, not `//`) — `AuthenticationRedirect` panics at setup otherwise, since a caller-controlled off-site value would be a fixed open redirect on every route it protects. On success it behaves identically to `Authentication`; on failure it responds `303 See Other` to `LoginPath` instead of a JSON body — a deliberate exception to [Error shape](#error-shape), alongside `HandleHTTP` and `ServeStatic`. The credential/session mechanism is still entirely `Authenticate`'s responsibility, same as `Authentication` — `loom` still issues, signs, and stores nothing.
 
 ### Logger
 

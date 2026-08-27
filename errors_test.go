@@ -245,6 +245,10 @@ func TestEveryErrorPathRendersTheSameShape(t *testing.T) {
 	a.GET("/panic", func(c *Ctx) error {
 		panic("boom")
 	})
+	// AuthenticationRedirect is deliberately not exercised here — a redirect
+	// has no JSON body by design, which is the documented exception this
+	// test's own guarantee doesn't cover. See
+	// TestAuthenticationRedirectSendsSeeOtherOnFailure in auth_test.go.
 	a.GET("/guarded", func(c *Ctx) error {
 		return nil
 	}, a.Authentication(func(r *http.Request) (string, bool) { return "", false }))

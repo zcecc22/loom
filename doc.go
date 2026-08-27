@@ -18,6 +18,9 @@
 //		app.Logger().Error("server exited", "err", err)
 //	}
 //
+// LoadDotEnv(path string) error optionally seeds the process environment
+// from a .env file before New reads it — see LoadDotEnv.
+//
 // # Handlers
 //
 // Handlers take a *Ctx and return an error. Ctx wraps the request and
@@ -41,8 +44,10 @@
 // Every error loom itself generates renders the same way — a JSON body of
 // the form {"error":"<message>"} — whether it came from a handler, a
 // panic, an Authentication or CSRF rejection, or the router finding no
-// route. The two exceptions are handlers mounted with HandleHTTP and
-// ServeStatic, which own their own responses; see HandleHTTP.
+// route. The exceptions are handlers mounted with HandleHTTP and
+// ServeStatic, which own their own responses (see HandleHTTP), and
+// AuthenticationRedirect, whose whole point is a redirect rather than a
+// JSON body.
 //
 // # Middleware
 //
