@@ -638,11 +638,14 @@ app.Recover() Middleware
 app.SecureHeaders() Middleware // X-Content-Type-Options, X-Frame-Options, Referrer-Policy
 app.MaxBodySize(n int64) Middleware // caps request body size via http.MaxBytesReader
 app.HSTS() Middleware // Strict-Transport-Security
+app.CSP(policy string) Middleware // Content-Security-Policy, your policy (v1.1.0)
 ```
 
 All three are opt-in via `Use` (or route-level `mw`) — never automatic, unlike `Logging`/`Recover`. A header like `X-Frame-Options` can break a legitimate use case (intentional iframe embedding), so it isn't safe to force on every `App` by default.
 
 `SecureHeaders` deliberately omits `X-XSS-Protection` (deprecated — the legacy filter it enabled had vulnerabilities of its own) and `Content-Security-Policy`/`Permissions-Policy` (no safe one-size-fits-all default exists — add your own if your app needs one). `HSTS` is kept separate from `SecureHeaders` on purpose: it's only correct when this deployment is actually reached over HTTPS (directly, or via a TLS-terminating reverse proxy) — turn it on deliberately per-deployment, since enabling it for a plain-HTTP deployment like local dev would be wrong, not just unnecessary.
+
+`CSP` sets the `Content-Security-Policy` that `SecureHeaders` leaves out, with the policy you pass. There is no default, and an empty policy panics at setup. A page that handles secrets in browser JavaScript should run under something like `default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'`.
 
 `c.Bind` does not limit body size on its own; `MaxBodySize` is the mechanism for that.
 
@@ -754,7 +757,7 @@ app.GET("/admin", func(c *loom.Ctx) error {
 
 The package-level `loom.Identity(r)` does the same thing for code that holds only a request — middleware, or a handler mounted with `HandleHTTP`.
 
-`loom` doesn't provide a built-in Basic/Bearer/session implementation — `authenticate` is where you plug in whichever scheme you need. This also means `loom` doesn't issue, sign, or store sessions; `Authentication` is a building block for session-based auth, not a session framework. (CSRF protection itself is a separate, already-built middleware — see [CSRF](#csrf) above — it doesn't need a session store, since it uses the stateless double-submit cookie pattern.)
+`loom` doesn't provide a built-in Basic/Bearer/session implementation — `authenticate` is where you plug in whichever scheme you need. `Authentication` itself is a building block, not a session framework. For server-side sessions, pass the opt-in [`Sessions`](#sessions) store's `Lookup` as `authenticate`. (CSRF protection itself is a separate, already-built middleware — see [CSRF](#csrf) above — it doesn't need a session store, since it uses the stateless double-submit cookie pattern.)
 
 `Authentication`'s 401 uses the same JSON error shape as every other loom error — see [Error shape](#error-shape).
 
@@ -780,7 +783,52 @@ app.GET("/admin", func(c *loom.Ctx) error {
 }))
 ```
 
-`LoginPath` is required and must be a local path (starts with `/`, not `//`) — `AuthenticationRedirect` panics at setup otherwise, since a caller-controlled off-site value would be a fixed open redirect on every route it protects. On success it behaves identically to `Authentication`; on failure it responds `303 See Other` to `LoginPath` instead of a JSON body — a deliberate exception to [Error shape](#error-shape), alongside `HandleHTTP` and `ServeStatic`. The credential/session mechanism is still entirely `Authenticate`'s responsibility, same as `Authentication` — `loom` still issues, signs, and stores nothing.
+`LoginPath` is required and must be a local path (starts with `/`, not `//`) — `AuthenticationRedirect` panics at setup otherwise, since a caller-controlled off-site value would be a fixed open redirect on every route it protects. On success it behaves identically to `Authentication`; on failure it responds `303 See Other` to `LoginPath` instead of a JSON body — a deliberate exception to [Error shape](#error-shape), alongside `HandleHTTP` and `ServeStatic`. The credential/session mechanism is still entirely `Authenticate`'s responsibility, same as `Authentication` (pass [`Sessions`](#sessions)' `Lookup` for server-side sessions).
+
+#### Sessions
+
+```go
+sessions := loom.NewSessions(loom.SessionConfig{IdleTimeout: 15 * time.Minute, MaxLifetime: 12 * time.Hour, Secure: true})
+sessions.Create(w, identity) error         // new opaque token, sets the cookie
+sessions.Lookup(r) (identity string, ok bool) // also restarts the idle timer
+sessions.Destroy(w, r)                     // logout
+sessions.DestroyIdentity(identity) int     // e.g. after revoking a credential
+```
+
+`Sessions` (v1.1.0) is an in-memory, server-side session store. The cookie carries only a random 256-bit token (`__Host-session` when `Secure`; `HttpOnly`, `SameSite=Strict`), and tokens are stored hashed. Every session ends when the process exits, which suits a single-instance service; a replicated deployment needs its own store. `Lookup` has the `authenticate` signature, so it plugs straight into `Authentication`:
+
+```go
+app.GET("/me", me, app.Authentication(sessions.Lookup))
+
+app.POST("/login", func(c *loom.Ctx) error {
+	// ... verify credentials ...
+	sessions.Destroy(c.W, c.R) // never reuse the old token: no session fixation
+	if err := sessions.Create(c.W, user); err != nil {
+		return err
+	}
+	return c.NoContent(204)
+})
+```
+
+### WebAuthn
+
+```go
+import "github.com/zcecc22/loom/webauthn"
+
+rp := webauthn.RelyingParty{ID: "example.com", Origin: "https://example.com", RequireUserVerification: true}
+ch, _ := webauthn.NewChallenge() // store server-side: single use, short-lived
+cred, err := rp.VerifyRegistration(ch, clientDataJSON, attestationObject)
+res, err := rp.VerifyAssertion(ch, webauthn.StoredCredential{ID: cred.ID, PublicKey: cred.PublicKey, SignCount: n},
+	clientDataJSON, authenticatorData, signature)
+```
+
+The `webauthn` subpackage (v1.1.0) verifies the server half of WebAuthn registration and authentication, stdlib only:
+- ES256, EdDSA and RS256 keys, via a bounded internal CBOR decoder.
+- Checks the client data type, challenge, origin and cross-origin flag, the RP ID hash, the UP flag and (when required) the UV flag, the signature, and that the counter doesn't regress.
+- Attestation statements are not verified: it is meant for relying parties that request `attestation: "none"`.
+- Storing challenges, users and credentials is up to the application.
+
+`webauthn/webauthntest` is a software authenticator (ES256, with a simulated PRF extension) for testing ceremony handlers end to end.
 
 ### Logger
 

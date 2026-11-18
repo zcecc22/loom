@@ -300,10 +300,30 @@ Three items surfaced by studying two sibling projects (`go-pkm`, `go-heartbeat`)
 
 ---
 
+## v1.1.0 — 2026-11-18 (`webauthn` + `webauthntest`, `Sessions`, `CSP`)
+
+Requested by the user while building `app-vault` (a WebAuthn/PRF, end-to-end encrypted password vault on loom), with the explicit instruction to put reusable building blocks into loom rather than into the app. Still stdlib only; `go.mod` is untouched. Each piece has a real consumer, app-vault, so this satisfies Principle 8 ("no speculative abstractions").
+
+64. ✅ **`webauthn` subpackage** (`webauthn/`): relying-party verification of WebAuthn registration and authentication ceremonies.
+    - `RelyingParty{ID, Origin, RequireUserVerification}` with `VerifyRegistration` and `VerifyAssertion`, plus `NewChallenge`, `ParsePublicKey` / `PublicKey.Verify` (COSE ES256, EdDSA, RS256) and `ErrSignCount`.
+    - Built on an unexported, bounded CBOR decoder that covers only the WebAuthn subset: definite lengths only, no tags or floats, a depth limit, length checks before any allocation, no duplicate keys or trailing bytes.
+    - Scope is deliberately the server half for attestation `"none"`. Attestation statements are accepted but not verified, and challenge storage and credential bookkeeping stay with the caller. The package doc says why.
+    - Tests: `cbor_test.go` (RFC 8949 Appendix A vectors plus every rejection path), `cose_test.go` (all three algorithms; off-curve points, short keys, mismatched kty/crv, RSA under 2048 bits, even exponents), `webauthn_test.go` (full ceremonies; challenge, origin, RP ID, UV, UP, type confusion, cross-origin, tampering, counter regression, zero-counter passkeys).
+65. ✅ **`webauthn/webauthntest`**: a software ES256 authenticator with a simulated PRF extension, in the spirit of `net/http/httptest`. It is a package of its own so production builds never link it. Both loom's and app-vault's ceremony tests use it.
+66. ✅ **`Sessions` (`session.go`)** — **reverses the "session storage/issuance" Deferred entry**, at the user's request. It is a narrow, in-memory, single-instance store:
+    - The cookie holds only an opaque 256-bit token (the `__Host-session` cookie when `Secure`; `HttpOnly`, `SameSite=Strict`, `Max-Age` = `MaxLifetime`). Tokens are kept SHA-256 hashed.
+    - Idle and absolute expiry, `Create`/`Lookup`/`Destroy`/`DestroyIdentity`/`Len`. Expired sessions are swept on `Create`, so there is no goroutine.
+    - `NewSessions` panics at setup on non-positive timeouts, or when `MaxLifetime < IdleTimeout`.
+    - `Lookup` has `Authentication`'s authenticate signature, so `app.Authentication(sessions.Lookup)` works as is.
+    - Still declined: persistence, replication, and any "remember me" or rotation scheme. A multi-replica app needs its own store. `session_test.go` drives a fake clock.
+67. ✅ **`App.CSP(policy)` (`security.go`)**: the opt-in `Content-Security-Policy` that `SecureHeaders` deliberately leaves out, with no default policy. It panics at setup on an empty policy, since an empty header enforces nothing. `TestCSPSetsHeaderAndPanicsWhenEmpty` also checks the header on the mux's own 404.
+
+---
+
 ## Deferred (explicitly out of scope — not oversights)
 
 - **Form parsing/validation.** Reason: not part of v1 either; genuinely new scope with no prior art to restore, deserving its own design pass.
-- **Session storage/issuance.** Reason: this is the security-sensitive surface the original "Sessions, cookie auth, CSRF" deferral was hedging on — it still deserves its own dedicated design pass rather than being bolted on. Narrower than the original deferral, and narrower still after v3.4: Tier 6 shipped a generic `Authentication` middleware primitive (route-level, scheme-agnostic — the caller supplies the actual credential check) plus `SecureHeaders`/`HSTS`, and v3.4 shipped stateless CSRF (`App.CSRF`, double-submit cookie — see the v3.4 section above) specifically *because* it needs no session store. `Authentication` remains a building block someone could use to implement session-based auth on top of; gwt itself still doesn't issue, sign, or store sessions.
+- ~~**Session storage/issuance.**~~ **Partly reversed in v1.1.0 (item 66):** an in-memory, single-instance `Sessions` store now ships. Persistent or replicated session storage stays deferred. Original reason, kept for history: this is the security-sensitive surface the original "Sessions, cookie auth, CSRF" deferral was hedging on — it still deserves its own dedicated design pass rather than being bolted on. Narrower than the original deferral, and narrower still after v3.4: Tier 6 shipped a generic `Authentication` middleware primitive (route-level, scheme-agnostic — the caller supplies the actual credential check) plus `SecureHeaders`/`HSTS`, and v3.4 shipped stateless CSRF (`App.CSRF`, double-submit cookie — see the v3.4 section above) specifically *because* it needs no session store. `Authentication` remains a building block someone could use to implement session-based auth on top of; gwt itself still doesn't issue, sign, or store sessions.
 - **`RequestID` middleware, `App.Routes()` route introspection, `AppConfig.BaseContext` beyond the minimal passthrough already specified.** Reason: speculative — no confirmed use case yet. Per Design Principle 7 ("no speculative abstractions"), these land only when something real needs them. (Note: `AppConfig.BaseContext` itself — the minimal passthrough to `http.Server.BaseContext` — is implemented in `app.go`/`server.go`, since it's part of the documented API surface; only *extensions* beyond it are deferred.)
 - **Registry push / CI-CD for scaffolded Docker images.** Reason: go-pkm's `update_image` script (the reference pattern) is purely local build-and-restart with no registry step; v2's scaffold matches that scope deliberately and does not add CI/CD.
 

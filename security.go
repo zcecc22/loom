@@ -68,6 +68,27 @@ func (a *App) HSTS() Middleware {
 	}
 }
 
+// CSP returns a Middleware that sets Content-Security-Policy to policy on
+// every response. SecureHeaders deliberately sets no CSP, because no
+// policy is safe for every app; CSP is the opt-in for an app that knows
+// its own. A strict policy (e.g. "default-src 'none'; script-src 'self';
+// ...") is the main defense of a page that handles secrets in browser
+// JavaScript, since it stops injected markup from running script.
+//
+// CSP panics immediately, before returning the Middleware, if policy is
+// empty — an empty header would silently enforce nothing.
+func (a *App) CSP(policy string) Middleware {
+	if strings.TrimSpace(policy) == "" {
+		panic("loom: CSP policy must not be empty")
+	}
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Security-Policy", policy)
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
 // defaultCORSMethods is used for Access-Control-Allow-Methods when
 // CORSConfig.AllowedMethods is empty — the six loom verb methods.
 var defaultCORSMethods = []string{

@@ -55,5 +55,12 @@
 // anything written for the stdlib composes with loom directly. Pass it to
 // Use for the whole app, or as trailing arguments to a route for just that
 // route. Logging and Recover are always on; SecureHeaders, MaxBodySize,
-// HSTS, CORS, CSRF, and Authentication are opt-in.
+// HSTS, CSP, CORS, CSRF, and Authentication are opt-in.
+//
+// # Sessions and WebAuthn
+//
+// Sessions is an opt-in, in-memory server-side session store whose Lookup
+// plugs into Authentication. The webauthn subpackage verifies WebAuthn
+// registration and authentication ceremonies, and webauthn/webauthntest
+// provides a software authenticator for tests.
 package loom
